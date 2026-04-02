@@ -30,8 +30,10 @@
 启动测试
 # 终端1 - 后端
 cd backend
+conda install --yes --file requirements.txt
 uvicorn app.main:app --reload --port 8000
 # 终端2 - 前端  
 cd web
+npm install
 npm run dev
 ```
