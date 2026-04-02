@@ -1,7 +1,7 @@
 # llm-finetune-webui
 
 一个用于NLP大模型微调的Web项目
-
+```
 ├── backend/                  # FastAPI 后端
 │   ├── app/
 │   │   ├── api/              # 路由接口 (直接操作文件)
@@ -11,7 +11,7 @@
 │   ├── scripts/              # 训练脚本
 │   └── requirements.txt
 |
-├── webui/                 # 前端 Vue3 项目目录
+├── webui/                 # 前端 Vue3 项目目录s
 │   ├── src/
 │   │   ├── api/              # Axios 请求封装
 │   │   ├── assets/           # 静态资源
@@ -25,3 +25,4 @@
     ├── data/                 # 存放 .jsonl 数据集
     ├── base_models/          # 存放下载的基底模型 (如 Qwen-7B-Chat)
     └── checkpoints/          # 存放训练输出目录 (包含权重和 trainer_state.json)
+```
