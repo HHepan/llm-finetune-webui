@@ -26,3 +26,12 @@
     ├── base_models/          # 存放下载的基底模型 (如 Qwen-7B-Chat)
     └── checkpoints/          # 存放训练输出目录 (包含权重和 trainer_state.json)
 ```
+```
+启动测试
+# 终端1 - 后端
+cd backend
+uvicorn app.main:app --reload --port 8000
+# 终端2 - 前端  
+cd web
+npm run dev
+```
