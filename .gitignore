@@ -1,7 +1,6 @@
 node_modules/
 __pycache__/
-workspace/data
-workspace/base_models
+workspace
 
 *.pyc
 *.pyo
