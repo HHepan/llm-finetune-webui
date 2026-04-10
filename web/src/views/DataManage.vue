@@ -3,18 +3,56 @@
     <!-- 顶部操作区 -->
     <div class="action-bar">
       <div class="left-actions">
-        <span class="label">当前数据集：</span>
-        <el-select v-model="selectedFile" placeholder="请选择数据集文件" style="width: 250px">
+        <span class="label">选择文件夹：</span>
+        <el-select v-model="selectedFolder" placeholder="请选择文件夹" style="width: 180px" @change="onFolderChange">
           <el-option
-            v-for="item in fileList"
+            v-for="item in folderList"
             :key="item"
             :label="item"
             :value="item"
           />
         </el-select>
-        <el-button type="primary" style="margin-left: 10px" @click="loadData" :disabled="!selectedFile">
-          加载数据
-        </el-button>
+        <span class="label" style="margin-left: 20px;">当前数据集：</span>
+        <el-popover
+          placement="bottom-start"
+          :width="280"
+          trigger="click"
+          popper-class="file-select-popover"
+        >
+          <template #reference>
+            <el-button class="file-select-btn">
+              <span class="file-select-text">{{ selectedFile || '请选择数据集文件' }}</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+          </template>
+          <div class="file-list-container">
+            <div
+              v-for="item in fileList"
+              :key="item"
+              class="file-list-item"
+              @click="selectFile(item)"
+            >
+              <span class="file-name">{{ item }}</span>
+              <el-button
+                type="danger"
+                size="small"
+                link
+                @click.stop="confirmDeleteFile(item)"
+              >
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </div>
+            <div v-if="fileList.length === 0" class="file-list-empty">
+              暂无文件
+            </div>
+          </div>
+        </el-popover>
+        <span class="label" style="margin-left: 20px;">筛选类型：</span>
+        <el-select v-model="roundsFilter" placeholder="筛选类型" style="width: 120px" @change="onRoundsFilterChange">
+          <el-option label="全部数据" value="all" />
+          <el-option label="单轮对话" value="single" />
+          <el-option label="多轮对话" value="multi" />
+        </el-select>
       </div>
       <div class="right-actions">
         <el-button type="success" @click="openMergeDialog">
@@ -119,11 +157,16 @@
           <el-select
             v-model="mergeForm.sourceFiles"
             multiple
-            placeholder="请选择要合并的文件"
+            placeholder="请选择要合并的文件(支持跨文件夹)"
             style="width: 100%"
             @change="onSourceFilesChange"
           >
-            <el-option v-for="item in fileList" :key="item" :label="item" :value="item" />
+            <el-option
+              v-for="item in allFileOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
           </el-select>
         </el-form-item>
 
@@ -133,19 +176,19 @@
 
         <el-form-item label="抽样数量分配" v-if="mergeForm.sourceFiles.length >= 1">
           <div class="counts-section">
-            <div v-for="filename in mergeForm.sourceFiles" :key="filename" class="count-item">
-              <span class="count-filename">{{ filename }}</span>
+            <div v-for="fileKey in mergeForm.sourceFiles" :key="fileKey" class="count-item">
+              <span class="count-filename">{{ fileKey }}</span>
               <el-input-number
-                v-model="mergeForm.counts[filename]"
+                v-model="mergeForm.counts[fileKey]"
                 :min="0"
-                :max="getFileLineCount(filename)"
+                :max="getFileLineCount(fileKey)"
                 size="small"
                 style="width: 120px;"
               />
               <span class="count-label">条</span>
-              <span class="count-max">(共{{ getFileLineCount(filename) }}条)</span>
-              <span class="count-ratio">占比: {{ getCountRatio(filename) }}%</span>
-              <div v-if="mergeForm.counts[filename] > getFileLineCount(filename)" class="count-warning">
+              <span class="count-max">(共{{ getFileLineCount(fileKey) }}条)</span>
+              <span class="count-ratio">占比: {{ getCountRatio(fileKey) }}%</span>
+              <div v-if="mergeForm.counts[fileKey] > getFileLineCount(fileKey)" class="count-warning">
                 <el-icon><WarningFilled /></el-icon>
                 抽取数量不能超过源数据集总数
               </div>
@@ -160,6 +203,10 @@
           <el-input v-model="mergeForm.newName" placeholder="例如: merged_dataset">
             <template #append>.jsonl</template>
           </el-input>
+        </el-form-item>
+
+        <el-form-item label="保存位置">
+          <el-tag type="info">workspace/data/out</el-tag>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -180,12 +227,15 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { CopyDocument, WarningFilled } from '@element-plus/icons-vue'
+import { CopyDocument, WarningFilled, ArrowDown, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
+const folderList = ref([])
+const selectedFolder = ref('')
 const fileList = ref([])
 const selectedFile = ref('')
+const roundsFilter = ref('all')
 const loading = ref(false)
 
 const tableData = ref([])
@@ -205,8 +255,25 @@ const mergeForm = reactive({
   counts: {}
 })
 
-const getFileLineCount = (filename) => {
-  const stat = mergeForm.fileStats.find(s => s.filename === filename)
+const allFileOptions = computed(() => {
+  const options = []
+  for (const folder of folderList.value) {
+    const files = allFilesByFolder.value[folder] || []
+    for (const file of files) {
+      const key = `${folder}/${file}`
+      options.push({ label: key, value: key })
+    }
+  }
+  return options
+})
+
+const allFilesByFolder = ref({})
+
+const getFileLineCount = (fileKey) => {
+  const stat = mergeForm.fileStats.find(s => {
+    const fullKey = s.folder ? `${s.folder}/${s.filename}` : s.filename
+    return fullKey === fileKey
+  })
   return stat ? stat.line_count : 0
 }
 
@@ -228,18 +295,99 @@ const canSubmitMerge = computed(() => {
   return true
 })
 
-const getCountRatio = (filename) => {
+const getCountRatio = (fileKey) => {
   if (mergeFormTotalCount.value === 0) return '0.0'
-  const count = mergeForm.counts[filename] || 0
+  const count = mergeForm.counts[fileKey] || 0
   return ((count / mergeFormTotalCount.value) * 100).toFixed(1)
+}
+
+const loadFolderList = async () => {
+  try {
+    const res = await axios.get('/api/data/folders')
+    folderList.value = res.data
+    if (folderList.value.length > 0) {
+      selectedFolder.value = './'
+      await loadFileList()
+    }
+  } catch (error) {
+    ElMessage.error('获取文件夹列表失败')
+  }
+}
+
+const getFolderParam = (folder) => {
+  return folder.replace('./', '') || ''
 }
 
 const loadFileList = async () => {
   try {
-    const res = await axios.get('/api/data/files')
+    const res = await axios.get('/api/data/files', {
+      params: { folder: getFolderParam(selectedFolder.value) }
+    })
     fileList.value = res.data
+    if (fileList.value.length > 0 && !selectedFile.value) {
+      selectedFile.value = fileList.value[0]
+      loadData()
+    } else {
+      selectedFile.value = ''
+      tableData.value = []
+      totalRows.value = 0
+    }
   } catch (error) {
     ElMessage.error('获取文件列表失败')
+  }
+}
+
+const onFolderChange = () => {
+  selectedFile.value = ''
+  currentPage.value = 1
+  loadFileList()
+}
+
+const selectFile = (file) => {
+  if (selectedFile.value !== file) {
+    selectedFile.value = file
+    currentPage.value = 1
+    loadData()
+  }
+}
+
+const confirmDeleteFile = async (file) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除文件 "${file}" 吗？此操作不可恢复！`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await deleteFile(file)
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.response?.data?.detail || '删除失败')
+    }
+  }
+}
+
+const deleteFile = async (file) => {
+  try {
+    await axios.delete(`/api/data/files/${file}`, {
+      params: { folder: getFolderParam(selectedFolder.value) }
+    })
+    ElMessage.success('文件已删除')
+    const currentIndex = fileList.value.indexOf(file)
+    await loadFileList()
+    if (fileList.value.length > 0) {
+      if (currentIndex < fileList.value.length) {
+        selectedFile.value = fileList.value[currentIndex]
+      } else {
+        selectedFile.value = fileList.value[fileList.value.length - 1]
+      }
+      loadData()
+    } else {
+      selectedFile.value = ''
+      tableData.value = []
+      totalRows.value = 0
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '删除失败')
   }
 }
 
@@ -248,7 +396,7 @@ const loadData = async () => {
   loading.value = true
   try {
     const res = await axios.get(`/api/data/files/${selectedFile.value}`, {
-      params: { page: currentPage.value, size: pageSize.value }
+      params: { folder: getFolderParam(selectedFolder.value), page: currentPage.value, size: pageSize.value, rounds_filter: roundsFilter.value }
     })
     tableData.value = res.data.data
     totalRows.value = res.data.total
@@ -258,6 +406,11 @@ const loadData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const onRoundsFilterChange = () => {
+  currentPage.value = 1
+  loadData()
 }
 
 const handleSizeChange = (val) => {
@@ -297,6 +450,7 @@ const saveEdit = async () => {
   const text = buildText(editForm.conversations)
   try {
     await axios.put(`/api/data/files/${selectedFile.value}/${editForm.id}`, text, {
+      params: { folder: getFolderParam(selectedFolder.value) },
       headers: { 'Content-Type': 'text/plain' }
     })
     ElMessage.success('修改已保存')
@@ -314,7 +468,9 @@ const deleteRow = async (row) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await axios.delete(`/api/data/files/${selectedFile.value}/${row.id}`)
+    await axios.delete(`/api/data/files/${selectedFile.value}/${row.id}`, {
+      params: { folder: getFolderParam(selectedFolder.value) }
+    })
     ElMessage.success('删除成功')
     loadData()
   } catch (error) {
@@ -324,12 +480,24 @@ const deleteRow = async (row) => {
   }
 }
 
-const openMergeDialog = () => {
+const openMergeDialog = async () => {
   mergeForm.sourceFiles = []
   mergeForm.fileStats = []
   mergeForm.shuffle = true
   mergeForm.newName = ''
   mergeForm.counts = {}
+  
+  const filesByFolder = {}
+  for (const folder of folderList.value) {
+    try {
+      const res = await axios.get('/api/data/files', { params: { folder } })
+      filesByFolder[folder] = res.data
+    } catch (error) {
+      filesByFolder[folder] = []
+    }
+  }
+  allFilesByFolder.value = filesByFolder
+  
   mergeDialogVisible.value = true
 }
 
@@ -337,20 +505,37 @@ const onMergeDialogClosed = () => {
   mergeForm.sourceFiles = []
   mergeForm.fileStats = []
   mergeForm.counts = {}
+  allFilesByFolder.value = {}
 }
 
-const loadFileStats = async (filenames) => {
-  if (filenames.length === 0) {
+const loadFileStats = async (fileKeys) => {
+  if (fileKeys.length === 0) {
     mergeForm.fileStats = []
     mergeForm.counts = {}
     return
   }
   try {
+    const filenames = []
+    const folders = []
+    for (const key of fileKeys) {
+      const parts = key.split('/')
+      if (parts.length === 2) {
+        folders.push(parts[0])
+        filenames.push(parts[1])
+      } else {
+        folders.push('')
+        filenames.push(key)
+      }
+    }
     const filesParam = filenames.join(',')
-    const res = await axios.get(`/api/data/files/stats?files=${filesParam}`)
+    const foldersParam = folders.join(',')
+    const res = await axios.get(`/api/data/files/stats?files=${filesParam}&folders=${foldersParam}`)
     mergeForm.fileStats = res.data
-    filenames.forEach(f => {
-      const stat = res.data.find(s => s.filename === f)
+    fileKeys.forEach(f => {
+      const parts = f.split('/')
+      const filename = parts.length === 2 ? parts[1] : f
+      const folder = parts.length === 2 ? parts[0] : ''
+      const stat = res.data.find(s => s.filename === filename && s.folder === folder)
       mergeForm.counts[f] = stat ? stat.line_count : 0
     })
   } catch (error) {
@@ -364,22 +549,35 @@ const onSourceFilesChange = () => {
 
 const submitMerge = async () => {
   try {
-    await axios.post('/api/data/merge', {
-      source_files: mergeForm.sourceFiles,
+    const sourceFiles = mergeForm.sourceFiles.map(key => {
+      const parts = key.split('/')
+      if (parts.length === 2) {
+        return { folder: parts[0], filename: parts[1] }
+      } else {
+        return { folder: '', filename: key }
+      }
+    })
+    const res = await axios.post('/api/data/merge', {
+      source_files: sourceFiles,
       shuffle: mergeForm.shuffle,
       new_name: mergeForm.newName,
-      counts: { ...mergeForm.counts }
+      counts: { ...mergeForm.counts },
+      folder: 'out'
     })
-    ElMessage.success('合并成功')
+    ElMessage.success(`合并成功，已保存到 ${res.data.path}`)
     mergeDialogVisible.value = false
-    loadFileList()
+    if (!folderList.value.includes('./out')) {
+      loadFolderList()
+    } else if (selectedFolder.value === './out') {
+      loadFileList()
+    }
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '合并失败')
   }
 }
 
 onMounted(() => {
-  loadFileList()
+  loadFolderList()
 })
 </script>
 
@@ -399,6 +597,52 @@ onMounted(() => {
   align-items: center;
 }
 
+.file-select-btn {
+  width: 250px;
+  justify-content: space-between;
+}
+
+.file-select-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: left;
+}
+
+.file-list-container {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.file-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.file-list-item:hover {
+  background-color: #f5f7fa;
+}
+
+.file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 8px;
+}
+
+.file-list-empty {
+  padding: 20px;
+  text-align: center;
+  color: #909399;
+}
+
 .label {
   font-weight: bold;
   margin-right: 10px;
@@ -412,7 +656,7 @@ onMounted(() => {
 }
 
 .conversation-display {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -434,7 +678,7 @@ onMounted(() => {
 
 .round-label {
   color: #909399;
-  font-size: 12px;
+  font-size: 13px;
   margin-right: 4px;
 }
 
@@ -503,7 +747,7 @@ onMounted(() => {
 
 .count-filename {
   width: 140px;
-  font-size: 13px;
+  font-size: 14px;
   color: #606266;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -511,17 +755,17 @@ onMounted(() => {
 }
 
 .count-label {
-  font-size: 13px;
+  font-size: 14px;
   color: #606266;
 }
 
 .count-max {
-  font-size: 12px;
+  font-size: 13px;
   color: #909399;
 }
 
 .count-ratio {
-  font-size: 13px;
+  font-size: 14px;
   color: #67c23a;
   font-weight: 500;
   margin-left: auto;
@@ -532,7 +776,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: #f56c6c;
   margin-top: 4px;
 }
@@ -541,7 +785,7 @@ onMounted(() => {
   margin-top: 8px;
   padding-top: 12px;
   border-top: 1px solid #ebeef5;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: #303133;
 }

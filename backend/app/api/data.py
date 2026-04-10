@@ -8,27 +8,40 @@ router = APIRouter(prefix="/api/data", tags=["data"])
 
 
 class MergeRequest(BaseModel):
-    source_files: List[str]
+    source_files: List[Dict[str, str]]
     shuffle: bool = True
     new_name: str
     counts: Dict[str, int]
+    folder: str = "out"
+
+
+@router.get("/folders")
+async def get_folder_list() -> List[str]:
+    try:
+        return file_service.get_folder_list()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/files")
-async def get_file_list() -> List[str]:
+async def get_file_list(folder: str = Query(default="")) -> List[str]:
     try:
-        return file_service.get_file_list()
+        return file_service.get_file_list(folder)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/files/stats")
 async def get_files_stats(
-    files: str = Query(..., description="逗号分隔的文件名列表")
+    files: str = Query(..., description="逗号分隔的文件名列表"),
+    folders: str = Query(default="", description="逗号分隔的文件夹列表")
 ) -> List[Dict]:
     try:
         filenames = [f.strip() for f in files.split(',') if f.strip()]
-        return file_service.get_files_stats(filenames)
+        folder_list = [f.strip() for f in folders.split(',')] if folders else []
+        if len(folder_list) == 0:
+            folder_list = [''] * len(filenames)
+        return file_service.get_files_stats(filenames, folder_list)
     except file_service.FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -36,9 +49,9 @@ async def get_files_stats(
 
 
 @router.get("/files/{filename}/stats")
-async def get_file_stats(filename: str) -> Dict:
+async def get_file_stats(filename: str, folder: str = Query(default="")) -> Dict:
     try:
-        return file_service.get_file_stats(filename)
+        return file_service.get_file_stats(filename, folder)
     except file_service.FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -48,11 +61,13 @@ async def get_file_stats(filename: str) -> Dict:
 @router.get("/files/{filename}")
 async def get_file_data(
     filename: str,
+    folder: str = Query(default=""),
     page: int = Query(default=1, ge=1),
-    size: int = Query(default=10, ge=1, le=100)
+    size: int = Query(default=10, ge=1, le=100),
+    rounds_filter: str = Query(default="all")
 ):
     try:
-        return file_service.read_jsonl(filename, page, size)
+        return file_service.read_jsonl(filename, folder, page, size, rounds_filter)
     except file_service.FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -60,10 +75,10 @@ async def get_file_data(
 
 
 @router.put("/files/{filename}/{row_id}")
-async def update_row(filename: str, row_id: int, request: Request):
+async def update_row(filename: str, row_id: int, folder: str = Query(default=""), request: Request = None):
     try:
         new_text = (await request.body()).decode('utf-8')
-        file_service.update_row(filename, row_id, new_text)
+        file_service.update_row(filename, folder, row_id, new_text)
         return {"message": "更新成功"}
     except file_service.FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -74,13 +89,24 @@ async def update_row(filename: str, row_id: int, request: Request):
 
 
 @router.delete("/files/{filename}/{row_id}")
-async def delete_row(filename: str, row_id: int):
+async def delete_row(filename: str, row_id: int, folder: str = Query(default="")):
     try:
-        file_service.delete_row(filename, row_id)
+        file_service.delete_row(filename, folder, row_id)
         return {"message": "删除成功"}
     except file_service.FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except file_service.RowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/files/{filename}")
+async def delete_whole_file(filename: str, folder: str = Query(default="")):
+    try:
+        file_service.delete_file(filename, folder)
+        return {"message": f"文件 {filename} 已删除"}
+    except file_service.FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -93,11 +119,16 @@ async def merge_files(req: MergeRequest):
             source_files=req.source_files,
             shuffle=req.shuffle,
             new_name=req.new_name,
-            counts=req.counts
+            counts=req.counts,
+            folder=req.folder
         )
+        folder_path = req.folder or ''
+        path_note = f"workspace/data/{folder_path}/{result['filename']}" if folder_path else f"workspace/data/{result['filename']}"
         return {
             "message": f"合并成功: {result['filename']}",
             "filename": result['filename'],
+            "folder": result['folder'],
+            "path": path_note,
             "total_lines": result['total_lines'],
             "original_lines": result['original_lines']
         }
