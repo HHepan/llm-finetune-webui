@@ -37,3 +37,16 @@ cd web
 npm install
 npm run dev
 ```
+```
+cd workspace/tools/
+
+git clone https://gitee.com/rwkv-vibe/RWKV-PEFT.git
+
+cd RWKV-PEFT/
+
+mkdir ./json2binidx_tool/data/ && cp ../../data/out/total_data.jsonl ./json2binidx_tool/data/
+
+python3 ./json2binidx_tool/tools/preprocess_data.py --input ./json2binidx_tool/data/total_data.jsonl --output-prefix ./json2binidx_tool/data/total_data --vocab ./json2binidx_tool/rwkv_vocab_v20230424.txt --dataset-impl mmap --tokenizer-type RWKVTokenizer --append-eod && mv ./json2binidx_tool/data/total_data_text_document.bin ./json2binidx_tool/data/total_data.bin && mv ./json2binidx_tool/data/total_data_text_document.idx ./json2binidx_tool/data/total_data.idx
+
+sh scripts/lora.sh
+```

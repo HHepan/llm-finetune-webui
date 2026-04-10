@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.data import router as data_router
+from app.api.train import router as train_router
 
 app = FastAPI(title="LLM Fine-tune WebUI API")
 
@@ -14,6 +15,7 @@ app.add_middleware(
 )
 
 app.include_router(data_router)
+app.include_router(train_router)
 
 
 @app.get("/")
