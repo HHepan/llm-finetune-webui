@@ -3,7 +3,7 @@ import random
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from app.core.config import DATA_DIR
+from app.core.config import DATA_DIR, BASE_DIR
 
 
 class FileNotFoundError(Exception):
@@ -12,6 +12,19 @@ class FileNotFoundError(Exception):
 
 class RowNotFoundError(Exception):
     pass
+
+
+def get_base_model_list() -> List[str]:
+    base_models_dir = BASE_DIR / "workspace" / "base_models"
+    if not base_models_dir.exists():
+        base_models_dir.mkdir(parents=True, exist_ok=True)
+    model_extensions = {'.pth', '.bin', '.safetensors', '.pt', '.ckpt', '.h5', '.model'}
+    models = [
+        f.name for f in base_models_dir.iterdir()
+        if (f.is_dir() or f.suffix.lower() in model_extensions)
+        and not f.name.startswith('.')
+    ]
+    return sorted(models)
 
 
 def parse_text_to_conversations(text: str) -> Dict[str, Any]:

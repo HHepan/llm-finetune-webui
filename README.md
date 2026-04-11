@@ -38,15 +38,37 @@ npm install
 npm run dev
 ```
 ```
+启动微调训练（基于目录 llm-finetune-webui/ 的操作）
 cd workspace/tools/
 
-git clone https://gitee.com/rwkv-vibe/RWKV-PEFT.git
+[ ! -d "RWKV-PEFT" ] && git clone https://gitee.com/rwkv-vibe/RWKV-PEFT.git
 
-cd RWKV-PEFT/
+cd RWKV-PEFT/ && pip install -r requirements.txt
 
 mkdir ./json2binidx_tool/data/ && cp ../../data/out/total_data.jsonl ./json2binidx_tool/data/
 
 python3 ./json2binidx_tool/tools/preprocess_data.py --input ./json2binidx_tool/data/total_data.jsonl --output-prefix ./json2binidx_tool/data/total_data --vocab ./json2binidx_tool/rwkv_vocab_v20230424.txt --dataset-impl mmap --tokenizer-type RWKVTokenizer --append-eod && mv ./json2binidx_tool/data/total_data_text_document.bin ./json2binidx_tool/data/total_data.bin && mv ./json2binidx_tool/data/total_data_text_document.idx ./json2binidx_tool/data/total_data.idx
 
 sh scripts/lora.sh
+```
+```
+RWKV-PEFT/rwkvt/lightning_train/trainer.py => on_train_epoch_end 方法
+
+原代码（167-170行）：
+def on_train_epoch_end(self, trainer, pl_module):
+    args = self.args
+    if (trainer.is_global_zero):
+
+新代码（167-173行）：
+def on_train_epoch_end(self, trainer, pl_module):
+    args = self.args
+    current_epoch = args.epoch_begin + trainer.current_epoch
+    should_save = (current_epoch + 1) % args.epoch_save == 0
+    if (trainer.is_global_zero) and should_save:
+
+原代码（179行）路径变量：
+merged_path = f"{args.proj_dir}/rwkv-{args.epoch_begin + trainer.current_epoch}.pth"
+
+新代码（182行）路径变量：
+merged_path = f"{args.proj_dir}/rwkv-{current_epoch}.pth"
 ```
