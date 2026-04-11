@@ -121,7 +121,7 @@ def parse_tqdm_line(line: str) -> dict | None:
     """解析tqdm进度条输出，提取结构化数据"""
     import re
     pattern = re.compile(
-        r'Epoch (\d+):.*?\|(\d+)/(\d+)\s+\[.*?,\s*([\d.]+)it/s,\s*lr=([\d.e-]+),\s*sum_loss=([\d.]+),\s*loss=([\d.]+)'
+        r'Epoch (\d+):\s*.*?\| ?(\d+)/(\d+)\s+\[.*?(\d+\.\d+)it/s.*?lr=([\d.e-]+).*?sum_loss=([\d.]+).*?loss=([\d.]+)'
     )
     match = pattern.search(line)
     if match:

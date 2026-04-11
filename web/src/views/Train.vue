@@ -146,7 +146,14 @@
             </div>
           </template>
           <div class="progress-info">
-            <el-progress :percentage="trainingProgress" :stroke-width="20" />
+            <div class="progress-item">
+              <span class="progress-label">Epoch 进度</span>
+              <el-progress class="progress-bar" :percentage="epochProgress" :stroke-width="12" />
+            </div>
+            <div class="progress-item">
+              <span class="progress-label">Step 进度</span>
+              <el-progress class="progress-bar" :percentage="stepProgress" :stroke-width="12" />
+            </div>
             <div class="progress-detail">
               <span>Epoch: {{ currentEpoch }} / {{ trainParams.epoch_count }}</span>
               <span>Step: {{ currentStep }} / {{ trainParams.epoch_steps }}</span>
@@ -244,7 +251,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { FullScreen } from '@element-plus/icons-vue'
 import axios from 'axios'
@@ -287,12 +294,21 @@ const trainDataFileList = ref([])
 const dataList = ref([])
 
 const trainingStatus = ref('idle')
-const trainingProgress = ref(0)
 const currentEpoch = ref(0)
 const currentStep = ref(0)
 const currentLr = ref(0)
 const itsPerSec = ref(0)
 const sumLoss = ref(0)
+
+const epochProgress = computed(() => {
+  if (trainParams.epoch_count === 0) return 0
+  return Math.round((currentEpoch.value / trainParams.epoch_count) * 100)
+})
+
+const stepProgress = computed(() => {
+  if (trainParams.epoch_steps === 0) return 0
+  return Math.round((currentStep.value / trainParams.epoch_steps) * 100)
+})
 const logs = ref([])
 const lossData = ref([])
 const lossCanvas = ref(null)
@@ -371,7 +387,6 @@ const startTraining = async () => {
     lossData.value = []
     currentEpoch.value = 0
     currentStep.value = 0
-    trainingProgress.value = 0
     startPolling()
     ElMessage.success('训练已启动')
   } catch (error) {
@@ -387,7 +402,6 @@ const stopTraining = async () => {
     lossData.value = []
     currentEpoch.value = 0
     currentStep.value = 0
-    trainingProgress.value = 0
     stopPolling()
     ElMessage.success('训练已停止')
   } catch (error) {
@@ -422,10 +436,6 @@ const startPolling = () => {
       currentLr.value = status.current_lr || 0
       itsPerSec.value = status.its_per_sec || 0
       sumLoss.value = status.sum_loss || 0
-      trainingProgress.value = Math.round(
-        ((status.current_epoch - 1) * status.total_steps + status.current_step) /
-        (status.total_epochs * status.total_steps) * 100
-      )
 
       logs.value = logsRes.data
 
@@ -575,6 +585,23 @@ onUnmounted(() => {
   padding: 20px;
 }
 
+.progress-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.progress-label {
+  width: 70px;
+  font-size: 13px;
+  color: #606266;
+  flex-shrink: 0;
+}
+
+.progress-bar {
+  flex: 1;
+}
+
 .progress-detail {
   display: flex;
   justify-content: space-between;
@@ -637,6 +664,7 @@ onUnmounted(() => {
   color: #606266;
   white-space: pre-wrap;
   word-break: break-all;
+  text-align: left;
 }
 
 .log-empty {

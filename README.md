@@ -51,3 +51,24 @@ python3 ./json2binidx_tool/tools/preprocess_data.py --input ./json2binidx_tool/d
 
 sh scripts/lora.sh
 ```
+```
+RWKV-PEFT/rwkvt/lightning_train/trainer.py => on_train_epoch_end 方法
+
+原代码（167-170行）：
+def on_train_epoch_end(self, trainer, pl_module):
+    args = self.args
+    if (trainer.is_global_zero):
+
+新代码（167-173行）：
+def on_train_epoch_end(self, trainer, pl_module):
+    args = self.args
+    current_epoch = args.epoch_begin + trainer.current_epoch
+    should_save = (current_epoch + 1) % args.epoch_save == 0
+    if (trainer.is_global_zero) and should_save:
+
+原代码（179行）路径变量：
+merged_path = f"{args.proj_dir}/rwkv-{args.epoch_begin + trainer.current_epoch}.pth"
+
+新代码（182行）路径变量：
+merged_path = f"{args.proj_dir}/rwkv-{current_epoch}.pth"
+```
