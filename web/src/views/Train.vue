@@ -156,7 +156,7 @@
             </div>
             <div class="progress-detail">
               <span>Epoch: {{ currentEpoch }} / {{ trainParams.epoch_count }}</span>
-              <span>Step: {{ currentStep }} / {{ trainParams.epoch_steps }}</span>
+              <span>Step: {{ currentStep }} / {{ Math.floor(trainParams.epoch_steps / trainParams.micro_bsz) }}</span>
             </div>
             <div class="progress-metrics" v-if="trainingStatus === 'running'">
               <span>loss: {{ sumLoss.toFixed(3) }}</span>
@@ -306,8 +306,9 @@ const epochProgress = computed(() => {
 })
 
 const stepProgress = computed(() => {
-  if (trainParams.epoch_steps === 0) return 0
-  return Math.round((currentStep.value / trainParams.epoch_steps) * 100)
+  if (trainParams.epoch_steps === 0 || trainParams.micro_bsz === 0) return 0
+  const totalSteps = trainParams.epoch_steps / trainParams.micro_bsz
+  return Math.round((currentStep.value / totalSteps) * 100)
 })
 const logs = ref([])
 const lossData = ref([])
@@ -457,7 +458,7 @@ const startPolling = () => {
         if (status.status === 'completed') {
           trainingStatus.value = 'idle'
           currentEpoch.value = trainParams.epoch_count
-          currentStep.value = trainParams.epoch_steps
+          currentStep.value = Math.floor(trainParams.epoch_steps / trainParams.micro_bsz)
           ElMessage.success('训练完成')
         } else {
           trainingStatus.value = 'idle'
