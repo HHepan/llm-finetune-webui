@@ -454,11 +454,15 @@ const startPolling = () => {
       drawLossChart()
 
       if (status.status === 'completed' || status.status === 'idle') {
-        trainingStatus.value = status.status
-        stopPolling()
         if (status.status === 'completed') {
+          trainingStatus.value = 'idle'
+          currentEpoch.value = trainParams.epoch_count
+          currentStep.value = trainParams.epoch_steps
           ElMessage.success('训练完成')
+        } else {
+          trainingStatus.value = 'idle'
         }
+        stopPolling()
       }
     } catch (error) {
       console.error('轮询失败', error)

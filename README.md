@@ -71,10 +71,4 @@ merged_path = f"{args.proj_dir}/rwkv-{args.epoch_begin + trainer.current_epoch}.
 
 新代码（182行）路径变量：
 merged_path = f"{args.proj_dir}/rwkv-{current_epoch}.pth"
-
-cp RWKV-PEFT/rwkvt/lightning_train/trainer.py RWKV-PEFT/rwkvt/lightning_train/trainer.py.bak
-
-sed -i '167,170c\def on_train_epoch_end(self, trainer, pl_module):\n    args = self.args\n    current_epoch = args.epoch_begin + trainer.current_epoch\n    should_save = (current_epoch + 1) % args.epoch_save == 0\n    if (trainer.is_global_zero) and should_save:' RWKV-PEFT/rwkvt/lightning_train/trainer.py
-
-sed -i '179c\    merged_path = f"{args.proj_dir}/rwkv-{current_epoch}.pth"' RWKV-PEFT/rwkvt/lightning_train/trainer.py
 ```
