@@ -7,6 +7,14 @@ from app.services import file_service
 router = APIRouter(prefix="/api/data", tags=["data"])
 
 
+@router.get("/base-models")
+async def get_base_model_list() -> List[str]:
+    try:
+        return file_service.get_base_model_list()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class MergeRequest(BaseModel):
     source_files: List[Dict[str, str]]
     shuffle: bool = True

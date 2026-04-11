@@ -38,11 +38,12 @@ npm install
 npm run dev
 ```
 ```
+启动微调训练（基于目录 llm-finetune-webui/ 的操作）
 cd workspace/tools/
 
-git clone https://gitee.com/rwkv-vibe/RWKV-PEFT.git
+[ ! -d "RWKV-PEFT" ] && git clone https://gitee.com/rwkv-vibe/RWKV-PEFT.git
 
-cd RWKV-PEFT/
+cd RWKV-PEFT/ && pip install -r requirements.txt
 
 mkdir ./json2binidx_tool/data/ && cp ../../data/out/total_data.jsonl ./json2binidx_tool/data/
 
