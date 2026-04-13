@@ -1,6 +1,154 @@
 <template>
   <div class="page-container">
-    <div class="content-wrapper">
+    <!-- 顶部导航 -->
+    <el-tabs v-model="activeTab" class="train-tabs">
+      <el-tab-pane label="训练记录" name="record" />
+      <el-tab-pane label="启动训练" name="start" />
+    </el-tabs>
+
+    <!-- 训练记录页面 -->
+    <div v-show="activeTab === 'record'" class="record-view">
+      <el-table v-if="trainRecords.length > 0" :data="paginatedRecords" border stripe style="width: 100%">
+        <el-table-column prop="time" label="训练时间" width="180" align="center" />
+        <el-table-column prop="folder_name" label="保存位置" width="180" />
+        <el-table-column prop="base_model" label="基底模型" />
+        <el-table-column prop="train_data" label="训练数据" />
+        <el-table-column prop="status" label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'completed' ? 'success' : row.status === 'running' ? 'warning' : 'info'">
+              {{ row.status === 'completed' ? '已完成' : row.status === 'running' ? '训练中' : '未知' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" align="center">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" @click="showDetail(row)">详情</el-button>
+            <el-button size="small" type="danger" @click="confirmDeleteRecord(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-empty v-if="trainRecords.length === 0" description="暂无训练记录" />
+
+      <div v-if="trainRecords.length > 0" class="pagination-container">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="totalRecords"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
+
+      <el-dialog v-model="detailDialogVisible" title="训练详情" width="80%" top="5vh">
+        <el-tabs v-model="detailActiveTab" class="detail-tabs">
+<el-tab-pane label="基本信息与参数" name="info">
+            <div class="detail-info-section">
+              <div class="left-panel">
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>基本信息</span>
+                    </div>
+                  </template>
+                  <el-descriptions :column="1" border label-width="80px">
+                    <el-descriptions-item label="训练时间">{{ currentDetail.time }}</el-descriptions-item>
+                    <el-descriptions-item label="基底模型">{{ currentDetail.base_model }}</el-descriptions-item>
+                    <el-descriptions-item label="训练数据">{{ currentDetail.train_data }}</el-descriptions-item>
+                    <el-descriptions-item label="状态">
+                      <el-tag :type="currentDetail.state?.status === 'completed' ? 'success' : currentDetail.state?.status === 'running' ? 'warning' : currentDetail.state?.status === 'error' ? 'danger' : 'info'">
+                        {{ currentDetail.state?.status === 'completed' ? '已完成' : currentDetail.state?.status === 'running' ? '训练中' : currentDetail.state?.status === 'error' ? '错误' : '未知' }}
+                      </el-tag>
+                    </el-descriptions-item>
+                  </el-descriptions>
+                </el-card>
+
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>训练进度</span>
+                    </div>
+                  </template>
+                  <div class="detail-progress">
+                    <div class="progress-item">
+                      <span class="progress-label">Epoch 进度</span>
+                      <el-progress class="progress-bar" :percentage="currentDetail.state ? Math.round((currentDetail.state.current_epoch / currentDetail.state.total_epochs) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
+                    </div>
+                    <div class="progress-item">
+                      <span class="progress-label">Step 进度</span>
+                      <el-progress class="progress-bar" :percentage="currentDetail.state ? Math.round((currentDetail.state.current_step / currentDetail.state.total_steps) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
+                    </div>
+                    <div class="progress-detail">
+                      <span>Epoch: {{ currentDetail.state?.current_epoch || 0 }} / {{ currentDetail.state?.total_epochs || 1 }}</span>
+                      <span>Step: {{ currentDetail.state?.current_step || 0 }} / {{ currentDetail.state?.total_steps || 1 }}</span>
+                    </div>
+                    <div class="progress-metrics">
+                      <span>loss: {{ currentDetail.state?.sum_loss?.toFixed(3) || 0 }}</span>
+                      <span>lr: {{ currentDetail.state?.current_lr || 0 }}</span>
+                    </div>
+                  </div>
+                </el-card>
+              </div>
+
+              <div class="right-panel">
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>训练参数</span>
+                    </div>
+                  </template>
+                  <el-descriptions :column="2" border label-width="100px">
+                    <el-descriptions-item label="模型参数量">{{ currentDetail.params?.model_size || '2.9B' }}</el-descriptions-item>
+                    <el-descriptions-item label="micro_bsz">{{ currentDetail.params?.micro_bsz || 1 }}</el-descriptions-item>
+                    <el-descriptions-item label="epoch_save">{{ currentDetail.params?.epoch_save || 1 }}</el-descriptions-item>
+                    <el-descriptions-item label="epoch_steps">{{ currentDetail.params?.epoch_steps || 1000 }}</el-descriptions-item>
+                    <el-descriptions-item label="ctx_len">{{ currentDetail.params?.ctx_len || 512 }}</el-descriptions-item>
+                    <el-descriptions-item label="epoch_count">{{ currentDetail.params?.epoch_count || 1 }}</el-descriptions-item>
+                    <el-descriptions-item label="lr_init">{{ currentDetail.params?.lr_init || 2e-5 }}</el-descriptions-item>
+                    <el-descriptions-item label="lr_final">{{ currentDetail.params?.lr_final || 2e-5 }}</el-descriptions-item>
+                  </el-descriptions>
+                </el-card>
+
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>LoRA参数</span>
+                    </div>
+                  </template>
+                  <el-descriptions :column="2" border label-width="100px">
+                    <el-descriptions-item label="r (rank)">{{ currentDetail.params?.lora_r || 32 }}</el-descriptions-item>
+                    <el-descriptions-item label="lora_alpha">{{ currentDetail.params?.lora_alpha || 32 }}</el-descriptions-item>
+                    <el-descriptions-item label="lora_dropout">{{ currentDetail.params?.lora_dropout || 0.01 }}</el-descriptions-item>
+                  </el-descriptions>
+                </el-card>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="损失曲线" name="loss">
+            <div class="loss-chart detail-loss-chart">
+              <div ref="detailLossChartRef" style="width: 100%; height: 250px;"></div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="训练日志" name="logs">
+            <el-scrollbar class="detail-log-scrollbar">
+              <div class="log-content">
+                <div v-for="(log, index) in currentDetail.logs || []" :key="index" class="log-line">{{ log }}</div>
+                <div v-if="!currentDetail.logs || currentDetail.logs.length === 0" class="log-empty">
+                  暂无日志
+                </div>
+              </div>
+            </el-scrollbar>
+          </el-tab-pane>
+        </el-tabs>
+      </el-dialog>
+    </div>
+
+    <!-- 启动训练页面 -->
+    <div v-show="activeTab === 'start'" class="content-wrapper">
       <!-- 左侧参数设置区 -->
       <div class="left-panel">
         <!-- 训练参数 -->
@@ -12,7 +160,19 @@
           </template>
           <el-form :model="trainParams" label-width="120px">
             <el-form-item label="保存位置">
-              <el-input disabled value="llm-finetune-webui/workspace/checkpoints" />
+              <div style="display: flex; align-items: center; width: 100%; gap: 8px;">
+                <el-input disabled value="llm-finetune-webui/workspace/checkpoints/" style="flex: 0 0 70%;" />
+                <el-input
+                  v-model="saveFolder"
+                  placeholder="请输入文件夹名称（必填）"
+                  style="flex: 0 0 30%;"
+                  :class="{ 'is-invalid': saveFolderInvalid }"
+                  :disabled="trainingStatus === 'running'"
+                  @input="validateSaveFolder"
+                />
+              </div>
+              <div v-if="saveFolderInvalid" class="el-form-item__error">只允许输入字母、数字、下划线和连字符</div>
+              <div v-else-if="saveFolderExists" class="el-form-item__error">该文件夹名称已存在，请使用其他名称</div>
             </el-form-item>
 
             <el-form-item label="基底模型">
@@ -176,7 +336,7 @@
             <div v-if="lossData.length === 0" class="loss-empty">
               暂无训练数据
             </div>
-            <canvas ref="lossCanvas" width="400" height="200"></canvas>
+            <div v-show="lossData.length > 0" ref="lossChartRef" style="width: 100%; height: 200px;"></div>
           </div>
         </el-card>
 
@@ -232,6 +392,7 @@
             v-if="trainingStatus === 'idle'"
             type="success"
             size="large"
+            :disabled="!canStartTraining"
             @click="startTraining"
           >
             开始训练
@@ -252,9 +413,10 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { FullScreen } from '@element-plus/icons-vue'
 import axios from 'axios'
+import * as echarts from 'echarts'
 
 const trainParams = reactive({
   base_model: '',
@@ -293,6 +455,11 @@ const trainDataFolderList = ref([])
 const trainDataFileList = ref([])
 const dataList = ref([])
 
+const saveFolder = ref('')
+const saveFolderInvalid = ref(false)
+const saveFolderExists = ref(false)
+const existingFolders = ref([])
+
 const trainingStatus = ref('idle')
 const currentEpoch = ref(0)
 const currentStep = ref(0)
@@ -310,6 +477,30 @@ const stepProgress = computed(() => {
   const totalSteps = trainParams.epoch_steps / trainParams.micro_bsz
   return Math.round((currentStep.value / totalSteps) * 100)
 })
+
+const canStartTraining = computed(() => {
+  return (
+    !saveFolderInvalid.value &&
+    !saveFolderExists.value &&
+    saveFolder.value.trim() !== '' &&
+    trainParams.base_model !== '' &&
+    trainParams.train_data !== ''
+  )
+})
+
+const validateSaveFolder = (checkExists = true) => {
+  const regex = /^[a-zA-Z0-9_-]*$/
+  if (saveFolder.value && !regex.test(saveFolder.value)) {
+    saveFolderInvalid.value = true
+    saveFolderExists.value = false
+  } else if (checkExists && saveFolder.value && existingFolders.value.includes(saveFolder.value)) {
+    saveFolderInvalid.value = false
+    saveFolderExists.value = true
+  } else {
+    saveFolderInvalid.value = false
+    saveFolderExists.value = false
+  }
+}
 const logs = ref([])
 const lossData = ref([])
 const lossCanvas = ref(null)
@@ -319,6 +510,77 @@ const autoScroll = ref(true)
 const stopConfirmDialogVisible = ref(false)
 const logScrollbarRef = ref(null)
 const inlineLogScrollbarRef = ref(null)
+
+const activeTab = ref('record')
+
+const detailActiveTab = ref('info')
+const detailLossCanvas = ref(null)
+const lossChartRef = ref(null)
+const detailLossChartRef = ref(null)
+let lossChartInstance = null
+let detailLossChartInstance = null
+
+const trainRecords = ref([])
+
+const currentPage = ref(1)
+const pageSize = ref(10)
+const totalRecords = computed(() => trainRecords.value.length)
+
+const paginatedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return trainRecords.value.slice(start, end)
+})
+
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  currentPage.value = 1
+}
+
+const handleCurrentChange = (val) => {
+  currentPage.value = val
+}
+
+const detailDialogVisible = ref(false)
+const currentDetail = ref({})
+
+const showDetail = async (row) => {
+  try {
+    const res = await axios.get(`/api/train/records/${row.folder_name}`)
+    currentDetail.value = {
+      ...row,
+      params: res.data.params,
+      state: res.data.state,
+      loss_history: res.data.loss_history,
+      logs: res.data.logs
+    }
+    detailDialogVisible.value = true
+  } catch (error) {
+    ElMessage.error('获取详情失败')
+  }
+}
+
+const confirmDeleteRecord = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除该训练记录吗？`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await axios.delete(`/api/train/records/${row.folder_name}`)
+    trainRecords.value = trainRecords.value.filter(r => r.folder_name !== row.folder_name)
+    const total = trainRecords.value.length
+    const maxPage = Math.ceil(total / pageSize.value)
+    if (currentPage.value > maxPage && maxPage > 0) {
+      currentPage.value = maxPage
+    }
+    ElMessage.success('删除成功')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
+}
 
 const clearLogs = () => {
   logs.value = []
@@ -344,6 +606,15 @@ const loadTrainDataFolders = async () => {
   }
 }
 
+const loadExistingFolders = async () => {
+  try {
+    const res = await axios.get('/api/train/folders')
+    existingFolders.value = res.data
+  } catch (error) {
+    console.error('获取已存在文件夹列表失败', error)
+  }
+}
+
 const onTrainDataFolderChange = async () => {
   trainParams.train_data = ''
   trainDataFileList.value = []
@@ -360,18 +631,29 @@ const onBaseModelChange = () => {
   trainParams.model_size = '2.9B'
 }
 
+const loadTrainRecords = async () => {
+  try {
+    const res = await axios.get('/api/train/records')
+    trainRecords.value = res.data
+  } catch (error) {
+    console.error('获取训练记录列表失败', error)
+  }
+}
+
 const startTraining = async () => {
   try {
     // 保存参数到 localStorage
     localStorage.setItem('trainParams', JSON.stringify(trainParams))
     localStorage.setItem('loraParams', JSON.stringify(loraParams))
     localStorage.setItem('trainDataFolder', trainDataFolder.value)
+    localStorage.setItem('saveFolder', saveFolder.value)
     
     await axios.post('/api/train/start', {
       base_model: trainParams.base_model,
       model_size: trainParams.model_size,
       train_data: trainParams.train_data,
       train_data_folder: trainDataFolder.value.replace('./', '') || 'out',
+      save_folder: saveFolder.value,
       micro_bsz: trainParams.micro_bsz,
       epoch_save: trainParams.epoch_save,
       epoch_steps: trainParams.epoch_steps,
@@ -419,6 +701,7 @@ const clearSavedParams = () => {
   localStorage.removeItem('trainParams')
   localStorage.removeItem('loraParams')
   localStorage.removeItem('trainDataFolder')
+  localStorage.removeItem('saveFolder')
   ElMessage.success('已清除已保存的参数')
 }
 
@@ -479,34 +762,148 @@ const stopPolling = () => {
 }
 
 const drawLossChart = () => {
-  if (!lossCanvas.value || lossData.value.length === 0) return
+  if (!lossChartRef.value || lossData.value.length === 0) return
 
-  const canvas = lossCanvas.value
-  const ctx = canvas.getContext('2d')
-  const width = canvas.width
-  const height = canvas.height
+  if (!lossChartInstance) {
+    lossChartInstance = echarts.init(lossChartRef.value)
+  }
 
-  ctx.clearRect(0, 0, width, height)
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const point = params[0]
+        return `Step: ${point.value[0]}<br/>Loss: ${point.value[1]?.toFixed(4) || '-'}`
+      }
+    },
+    grid: {
+      left: '10%',
+      right: '10%',
+      top: '10%',
+      bottom: '15%'
+    },
+    xAxis: {
+      type: 'value',
+      name: 'Step',
+      nameLocation: 'middle',
+      nameGap: 25,
+      splitLine: {
+        show: false
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Loss',
+      splitLine: {
+        lineStyle: {
+          type: 'dashed'
+        }
+      }
+    },
+    series: [{
+      type: 'line',
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 4,
+      data: lossData.value.map(d => [d.step, d.loss]),
+      lineStyle: {
+        color: '#409eff',
+        width: 2
+      },
+      itemStyle: {
+        color: '#409eff'
+      },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
+            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
+          ]
+        }
+      }
+    }]
+  }
 
-  ctx.strokeStyle = '#409eff'
-  ctx.lineWidth = 2
-  ctx.beginPath()
+  lossChartInstance.setOption(option)
+}
 
-  const maxLoss = Math.max(...lossData.value.map(d => d.loss))
-  const minLoss = Math.min(...lossData.value.map(d => d.loss))
-  const lossRange = maxLoss - minLoss || 1
+watch(detailActiveTab, async (newVal) => {
+  if (newVal === 'loss') {
+    await nextTick()
+    drawDetailLossChart()
+  }
+})
 
-  lossData.value.forEach((point, index) => {
-    const x = (index / (lossData.value.length - 1)) * width
-    const y = height - ((point.loss - minLoss) / lossRange) * (height - 40) - 20
-    if (index === 0) {
-      ctx.moveTo(x, y)
-    } else {
-      ctx.lineTo(x, y)
-    }
-  })
+const drawDetailLossChart = () => {
+  if (!detailLossChartRef.value || !currentDetail.value.loss_history || currentDetail.value.loss_history.length === 0) return
 
-  ctx.stroke()
+  if (!detailLossChartInstance) {
+    detailLossChartInstance = echarts.init(detailLossChartRef.value)
+  }
+
+  const lossData = currentDetail.value.loss_history
+
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const point = params[0]
+        return `Step: ${point.value[0]}<br/>Loss: ${point.value[1]?.toFixed(4) || '-'}`
+      }
+    },
+    grid: {
+      left: '10%',
+      right: '10%',
+      top: '10%',
+      bottom: '15%'
+    },
+    xAxis: {
+      type: 'value',
+      name: 'Step',
+      nameLocation: 'middle',
+      nameGap: 25,
+      splitLine: {
+        show: false
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Loss',
+      splitLine: {
+        lineStyle: {
+          type: 'dashed'
+        }
+      }
+    },
+    series: [{
+      type: 'line',
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 4,
+      data: lossData.map(d => [d.step, d.loss]),
+      lineStyle: {
+        color: '#409eff',
+        width: 2
+      },
+      itemStyle: {
+        color: '#409eff'
+      },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
+            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
+          ]
+        }
+      }
+    }]
+  }
+
+  detailLossChartInstance.setOption(option)
 }
 
 onMounted(async () => {
@@ -534,8 +931,16 @@ onMounted(async () => {
     }
   }
   
+  const savedSaveFolder = localStorage.getItem('saveFolder')
+  if (savedSaveFolder) {
+    saveFolder.value = savedSaveFolder
+    validateSaveFolder()
+  }
+  
   loadBaseModels()
   loadTrainDataFolders()
+  loadExistingFolders()
+  loadTrainRecords()
   
   try {
     const statusRes = await axios.get('/api/train/status')
@@ -559,10 +964,123 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  if (lossChartInstance) {
+    lossChartInstance.dispose()
+    lossChartInstance = null
+  }
+  if (detailLossChartInstance) {
+    detailLossChartInstance.dispose()
+    detailLossChartInstance = null
+  }
 })
 </script>
 
 <style scoped>
+.train-tabs {
+  margin-bottom: 20px;
+}
+
+.record-view {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.detail-tabs {
+  margin-top: 10px;
+}
+
+.detail-info-section {
+  display: flex;
+  gap: 20px;
+}
+
+.detail-info-section .left-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.detail-info-section .right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.detail-info-section .el-divider {
+  margin: 10px 0;
+  text-align: left;
+}
+
+.detail-info-section .el-divider::before,
+.detail-info-section .el-divider::after {
+  border-color: #dcdfe6;
+}
+
+.detail-progress {
+  padding: 20px;
+}
+
+.detail-progress .progress-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.detail-progress .progress-label {
+  width: 80px;
+  font-size: 13px;
+  color: #606266;
+  flex-shrink: 0;
+}
+
+.detail-progress .progress-bar {
+  flex: 1;
+}
+
+.detail-progress .progress-detail {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 15px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.detail-progress .progress-metrics {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f0f9eb;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #67c23a;
+}
+
+.loss-chart.detail-loss-chart {
+  height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loss-chart.detail-loss-chart canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.detail-log-scrollbar {
+  height: 400px;
+}
+
 .content-wrapper {
   display: flex;
   gap: 20px;
@@ -584,6 +1102,10 @@ onUnmounted(() => {
 
 .param-card :deep(.el-form-item__label) {
   font-weight: 500;
+}
+
+.is-invalid :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px #f56c6c inset;
 }
 
 .progress-info {
