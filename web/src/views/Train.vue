@@ -34,15 +34,106 @@
         />
       </div>
 
-      <el-dialog v-model="detailDialogVisible" title="训练详情" width="40%">
-        <el-descriptions :column="2" border>
-          <el-descriptions-item label="训练时间">{{ currentDetail.time }}</el-descriptions-item>
-          <el-descriptions-item label="基底模型">{{ currentDetail.base_model }}</el-descriptions-item>
-          <el-descriptions-item label="训练数据">{{ currentDetail.train_data }}</el-descriptions-item>
-          <el-descriptions-item label="epoch_count">{{ currentDetail.params?.epoch_count }}</el-descriptions-item>
-          <el-descriptions-item label="lr_init">{{ currentDetail.params?.lr_init }}</el-descriptions-item>
-          <el-descriptions-item label="lora_r">{{ currentDetail.params?.lora_r }}</el-descriptions-item>
-        </el-descriptions>
+      <el-dialog v-model="detailDialogVisible" title="训练详情" width="80%" top="5vh">
+        <el-tabs v-model="detailActiveTab" class="detail-tabs">
+<el-tab-pane label="基本信息与参数" name="info">
+            <div class="detail-info-section">
+              <div class="left-panel">
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>基本信息</span>
+                    </div>
+                  </template>
+                  <el-descriptions :column="1" border label-width="80px">
+                    <el-descriptions-item label="训练时间">{{ currentDetail.time }}</el-descriptions-item>
+                    <el-descriptions-item label="基底模型">{{ currentDetail.base_model }}</el-descriptions-item>
+                    <el-descriptions-item label="训练数据">{{ currentDetail.train_data }}</el-descriptions-item>
+                    <el-descriptions-item label="状态">
+                      <el-tag type="success">已完成</el-tag>
+                    </el-descriptions-item>
+                  </el-descriptions>
+                </el-card>
+
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>训练进度</span>
+                    </div>
+                  </template>
+                  <div class="detail-progress">
+                    <div class="progress-item">
+                      <span class="progress-label">Epoch 进度</span>
+                      <el-progress class="progress-bar" :percentage="100" :stroke-width="12" status="success" />
+                    </div>
+                    <div class="progress-item">
+                      <span class="progress-label">Step 进度</span>
+                      <el-progress class="progress-bar" :percentage="100" :stroke-width="12" status="success" />
+                    </div>
+                    <div class="progress-detail">
+                      <span>Epoch: {{ currentDetail.params?.epoch_count || 1 }} / {{ currentDetail.params?.epoch_count || 1 }}</span>
+                      <span>Step: {{ currentDetail.params?.epoch_steps || 1000 }} / {{ currentDetail.params?.epoch_steps || 1000 }}</span>
+                    </div>
+                    <div class="progress-metrics">
+                      <span>loss: {{ (Math.random() * 2).toFixed(3) }}</span>
+                      <span>lr: {{ currentDetail.params?.lr_init || 2e-5 }}</span>
+                    </div>
+                  </div>
+                </el-card>
+              </div>
+
+              <div class="right-panel">
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>训练参数</span>
+                    </div>
+                  </template>
+                  <el-descriptions :column="2" border label-width="100px">
+                    <el-descriptions-item label="模型参数量">{{ currentDetail.params?.model_size || '2.9B' }}</el-descriptions-item>
+                    <el-descriptions-item label="micro_bsz">{{ currentDetail.params?.micro_bsz || 1 }}</el-descriptions-item>
+                    <el-descriptions-item label="epoch_save">{{ currentDetail.params?.epoch_save || 1 }}</el-descriptions-item>
+                    <el-descriptions-item label="epoch_steps">{{ currentDetail.params?.epoch_steps || 1000 }}</el-descriptions-item>
+                    <el-descriptions-item label="ctx_len">{{ currentDetail.params?.ctx_len || 512 }}</el-descriptions-item>
+                    <el-descriptions-item label="epoch_count">{{ currentDetail.params?.epoch_count || 1 }}</el-descriptions-item>
+                    <el-descriptions-item label="lr_init">{{ currentDetail.params?.lr_init || 2e-5 }}</el-descriptions-item>
+                    <el-descriptions-item label="lr_final">{{ currentDetail.params?.lr_final || 2e-5 }}</el-descriptions-item>
+                  </el-descriptions>
+                </el-card>
+
+                <el-card class="param-card">
+                  <template #header>
+                    <div class="card-header">
+                      <span>LoRA参数</span>
+                    </div>
+                  </template>
+                  <el-descriptions :column="2" border label-width="100px">
+                    <el-descriptions-item label="r (rank)">{{ currentDetail.params?.lora_r || 32 }}</el-descriptions-item>
+                    <el-descriptions-item label="lora_alpha">{{ currentDetail.params?.lora_alpha || 32 }}</el-descriptions-item>
+                    <el-descriptions-item label="lora_dropout">{{ currentDetail.params?.lora_dropout || 0.01 }}</el-descriptions-item>
+                  </el-descriptions>
+                </el-card>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="损失曲线" name="loss">
+            <div class="loss-chart detail-loss-chart">
+              <canvas ref="detailLossCanvas" width="600" height="250"></canvas>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="训练日志" name="logs">
+            <el-scrollbar class="detail-log-scrollbar">
+              <div class="log-content">
+                <div v-for="(log, index) in currentDetail.logs || []" :key="index" class="log-line">{{ log }}</div>
+                <div v-if="!currentDetail.logs || currentDetail.logs.length === 0" class="log-empty">
+                  暂无日志
+                </div>
+              </div>
+            </el-scrollbar>
+          </el-tab-pane>
+        </el-tabs>
       </el-dialog>
     </div>
 
@@ -369,22 +460,25 @@ const inlineLogScrollbarRef = ref(null)
 
 const activeTab = ref('record')
 
+const detailActiveTab = ref('info')
+const detailLossCanvas = ref(null)
+
 const trainRecords = ref([
-  { id: 1, time: '2026-04-13 12:10', base_model: 'xxxxxxxxxxxxxxxxx.pth', train_data: 'all_data.jsonl', params: { epoch_count: 3, lr_init: 2e-5, lora_r: 32 } },
-  { id: 2, time: '2026-04-12 10:00', base_model: 'model2.pth', train_data: 'data2.jsonl', params: { epoch_count: 2, lr_init: 1e-4, lora_r: 64 } },
-  { id: 3, time: '2026-04-11 09:30', base_model: 'RWKV-4-1.5B.pth', train_data: 'dataset_v2.jsonl', params: { epoch_count: 5, lr_init: 3e-5, lora_r: 32 } },
-  { id: 4, time: '2026-04-10 15:20', base_model: 'model_v1.pth', train_data: 'train_final.jsonl', params: { epoch_count: 3, lr_init: 2e-5, lora_r: 16 } },
-  { id: 5, time: '2026-04-09 11:00', base_model: 'checkpoint_4.5b.pth', train_data: 'qa_data.jsonl', params: { epoch_count: 4, lr_init: 1e-5, lora_r: 64 } },
-  { id: 6, time: '2026-04-08 14:45', base_model: 'base_model_v3.pth', train_data: 'chat_data.jsonl', params: { epoch_count: 2, lr_init: 5e-5, lora_r: 32 } },
-  { id: 7, time: '2026-04-07 08:30', base_model: 'rwkv_2.9b.pth', train_data: 'medical_qa.jsonl', params: { epoch_count: 6, lr_init: 2e-5, lora_r: 48 } },
-  { id: 8, time: '2026-04-06 16:10', base_model: 'pretrain_model.pth', train_data: 'user_logs.jsonl', params: { epoch_count: 3, lr_init: 3e-5, lora_r: 32 } },
-  { id: 9, time: '2026-04-05 10:20', base_model: 'finetune_latest.pth', train_data: 'code_examples.jsonl', params: { epoch_count: 5, lr_init: 1e-5, lora_r: 64 } },
-  { id: 10, time: '2026-04-04 13:00', base_model: 'model_v2.pth', train_data: 'instruction_data.jsonl', params: { epoch_count: 2, lr_init: 4e-5, lora_r: 32 } },
-  { id: 11, time: '2026-04-03 09:15', base_model: 'adapter_model.pth', train_data: 'domain_knowledge.jsonl', params: { epoch_count: 4, lr_init: 2e-5, lora_r: 48 } },
-  { id: 12, time: '2026-04-02 11:40', base_model: 'lora_weights.pth', train_data: 'science_qa.jsonl', params: { epoch_count: 3, lr_init: 1e-4, lora_r: 32 } },
-  { id: 13, time: '2026-04-01 14:25', base_model: 'experiment_v1.pth', train_data: 'general_data.jsonl', params: { epoch_count: 5, lr_init: 2e-5, lora_r: 64 } },
-  { id: 14, time: '2026-03-31 08:50', base_model: 'backup_model.pth', train_data: 'mixed_data.jsonl', params: { epoch_count: 2, lr_init: 3e-5, lora_r: 16 } },
-  { id: 15, time: '2026-03-30 10:30', base_model: 'production.pth', train_data: 'production_data.jsonl', params: { epoch_count: 6, lr_init: 2e-5, lora_r: 32 } },
+  { id: 1, time: '2026-04-13 12:10', base_model: 'xxxxxxxxxxxxxxxxx.pth', train_data: 'all_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 2e-5, lr_final: 2e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Loading model...', '[INFO] Model loaded successfully', '[INFO] Starting training...', 'Epoch 1/3, Step 100/1000, loss: 1.234', 'Epoch 2/3, Step 500/1000, loss: 0.876', 'Epoch 3/3, Step 1000/1000, loss: 0.543', '[INFO] Training completed'] },
+  { id: 2, time: '2026-04-12 10:00', base_model: 'model2.pth', train_data: 'data2.jsonl', params: { model_size: '1.5B', micro_bsz: 2, epoch_save: 1, epoch_steps: 800, ctx_len: 512, epoch_count: 2, lr_init: 1e-4, lr_final: 1e-4, lora_r: 64, lora_alpha: 64, lora_dropout: 0.01 }, logs: ['[INFO] Loading model...', '[INFO] Model loaded successfully', '[INFO] Starting training...', 'Epoch 1/2, loss: 1.456', 'Epoch 2/2, loss: 0.987', '[INFO] Training completed'] },
+  { id: 3, time: '2026-04-11 09:30', base_model: 'RWKV-4-1.5B.pth', train_data: 'dataset_v2.jsonl', params: { model_size: '1.5B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1200, ctx_len: 512, epoch_count: 5, lr_init: 3e-5, lr_final: 3e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 4, time: '2026-04-10 15:20', base_model: 'model_v1.pth', train_data: 'train_final.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 2e-5, lr_final: 2e-5, lora_r: 16, lora_alpha: 16, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 5, time: '2026-04-09 11:00', base_model: 'checkpoint_4.5b.pth', train_data: 'qa_data.jsonl', params: { model_size: '0.4B', micro_bsz: 1, epoch_save: 1, epoch_steps: 600, ctx_len: 256, epoch_count: 4, lr_init: 1e-5, lr_final: 1e-5, lora_r: 64, lora_alpha: 64, lora_dropout: 0.02 }, logs: ['[INFO] Training completed'] },
+  { id: 6, time: '2026-04-08 14:45', base_model: 'base_model_v3.pth', train_data: 'chat_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 500, ctx_len: 512, epoch_count: 2, lr_init: 5e-5, lr_final: 5e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 7, time: '2026-04-07 08:30', base_model: 'rwkv_2.9b.pth', train_data: 'medical_qa.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1500, ctx_len: 512, epoch_count: 6, lr_init: 2e-5, lr_final: 2e-5, lora_r: 48, lora_alpha: 48, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 8, time: '2026-04-06 16:10', base_model: 'pretrain_model.pth', train_data: 'user_logs.jsonl', params: { model_size: '2.9B', micro_bsz: 2, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 3e-5, lr_final: 3e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 9, time: '2026-04-05 10:20', base_model: 'finetune_latest.pth', train_data: 'code_examples.jsonl', params: { model_size: '7B', micro_bsz: 1, epoch_save: 1, epoch_steps: 2000, ctx_len: 1024, epoch_count: 5, lr_init: 1e-5, lr_final: 1e-5, lora_r: 64, lora_alpha: 64, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 10, time: '2026-04-04 13:00', base_model: 'model_v2.pth', train_data: 'instruction_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 500, ctx_len: 512, epoch_count: 2, lr_init: 4e-5, lr_final: 4e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 11, time: '2026-04-03 09:15', base_model: 'adapter_model.pth', train_data: 'domain_knowledge.jsonl', params: { model_size: '0.1B', micro_bsz: 1, epoch_save: 1, epoch_steps: 800, ctx_len: 256, epoch_count: 4, lr_init: 2e-5, lr_final: 2e-5, lora_r: 48, lora_alpha: 48, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 12, time: '2026-04-02 11:40', base_model: 'lora_weights.pth', train_data: 'science_qa.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 1e-4, lr_final: 1e-4, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 13, time: '2026-04-01 14:25', base_model: 'experiment_v1.pth', train_data: 'general_data.jsonl', params: { model_size: '7B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1500, ctx_len: 1024, epoch_count: 5, lr_init: 2e-5, lr_final: 2e-5, lora_r: 64, lora_alpha: 64, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
+  { id: 14, time: '2026-03-31 08:50', base_model: 'backup_model.pth', train_data: 'mixed_data.jsonl', params: { model_size: '0.4B', micro_bsz: 1, epoch_save: 1, epoch_steps: 400, ctx_len: 256, epoch_count: 2, lr_init: 3e-5, lr_final: 3e-5, lora_r: 16, lora_alpha: 16, lora_dropout: 0.02 }, logs: ['[INFO] Training completed'] },
+  { id: 15, time: '2026-03-30 10:30', base_model: 'production.pth', train_data: 'production_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 2000, ctx_len: 512, epoch_count: 6, lr_init: 2e-5, lr_final: 2e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
 ])
 
 const currentPage = ref(1)
@@ -692,6 +786,95 @@ onUnmounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.detail-tabs {
+  margin-top: 10px;
+}
+
+.detail-info-section {
+  display: flex;
+  gap: 20px;
+}
+
+.detail-info-section .left-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.detail-info-section .right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.detail-info-section .el-divider {
+  margin: 10px 0;
+  text-align: left;
+}
+
+.detail-info-section .el-divider::before,
+.detail-info-section .el-divider::after {
+  border-color: #dcdfe6;
+}
+
+.detail-progress {
+  padding: 20px;
+}
+
+.detail-progress .progress-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.detail-progress .progress-label {
+  width: 80px;
+  font-size: 13px;
+  color: #606266;
+  flex-shrink: 0;
+}
+
+.detail-progress .progress-bar {
+  flex: 1;
+}
+
+.detail-progress .progress-detail {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 15px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.detail-progress .progress-metrics {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f0f9eb;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #67c23a;
+}
+
+.loss-chart.detail-loss-chart {
+  height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loss-chart.detail-loss-chart canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.detail-log-scrollbar {
+  height: 400px;
 }
 
 .content-wrapper {
