@@ -80,10 +80,14 @@ def generate_lora_script(params: Dict) -> str:
     data_name = os.path.splitext(params["train_data"])[0]
     data_file = os.path.join(JSON2BINIDX_DIR, data_name)
     
+    save_folder = params.get("save_folder", "default")
+    save_dir = os.path.join(CHECKPOINTS_DIR, save_folder)
+    os.makedirs(save_dir, exist_ok=True)
+    
     peft_config = f'{{"r":{params["lora_r"]},"lora_alpha":{params["lora_alpha"]},"lora_dropout":{params["lora_dropout"]}}}'
     
     script_content = f'''load_model="{base_model_path}"
-proj_dir='{CHECKPOINTS_DIR}'
+proj_dir='{save_dir}'
 data_file={data_file}
 
 n_layer={n_layer}
