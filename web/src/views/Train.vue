@@ -150,7 +150,17 @@
           </template>
           <el-form :model="trainParams" label-width="120px">
             <el-form-item label="保存位置">
-              <el-input disabled value="llm-finetune-webui/workspace/checkpoints" />
+              <div style="display: flex; align-items: center; width: 100%; gap: 8px;">
+                <el-input disabled value="llm-finetune-webui/workspace/checkpoints/" style="flex: 0 0 70%;" />
+                <el-input
+                  v-model="saveFolder"
+                  placeholder="请输入文件夹名称（必填）"
+                  style="flex: 0 0 30%;"
+                  :class="{ 'is-invalid': saveFolderInvalid }"
+                  @input="validateSaveFolder"
+                />
+              </div>
+              <div v-if="saveFolderInvalid" class="el-form-item__error">只允许输入字母、数字、下划线和连字符</div>
             </el-form-item>
 
             <el-form-item label="基底模型">
@@ -370,6 +380,7 @@
             v-if="trainingStatus === 'idle'"
             type="success"
             size="large"
+            :disabled="!canStartTraining"
             @click="startTraining"
           >
             开始训练
@@ -431,6 +442,9 @@ const trainDataFolderList = ref([])
 const trainDataFileList = ref([])
 const dataList = ref([])
 
+const saveFolder = ref('')
+const saveFolderInvalid = ref(false)
+
 const trainingStatus = ref('idle')
 const currentEpoch = ref(0)
 const currentStep = ref(0)
@@ -448,6 +462,24 @@ const stepProgress = computed(() => {
   const totalSteps = trainParams.epoch_steps / trainParams.micro_bsz
   return Math.round((currentStep.value / totalSteps) * 100)
 })
+
+const canStartTraining = computed(() => {
+  return (
+    !saveFolderInvalid.value &&
+    saveFolder.value.trim() !== '' &&
+    trainParams.base_model !== '' &&
+    trainParams.train_data !== ''
+  )
+})
+
+const validateSaveFolder = () => {
+  const regex = /^[a-zA-Z0-9_-]*$/
+  if (saveFolder.value && !regex.test(saveFolder.value)) {
+    saveFolderInvalid.value = true
+  } else {
+    saveFolderInvalid.value = false
+  }
+}
 const logs = ref([])
 const lossData = ref([])
 const lossCanvas = ref(null)
@@ -575,12 +607,14 @@ const startTraining = async () => {
     localStorage.setItem('trainParams', JSON.stringify(trainParams))
     localStorage.setItem('loraParams', JSON.stringify(loraParams))
     localStorage.setItem('trainDataFolder', trainDataFolder.value)
+    localStorage.setItem('saveFolder', saveFolder.value)
     
     await axios.post('/api/train/start', {
       base_model: trainParams.base_model,
       model_size: trainParams.model_size,
       train_data: trainParams.train_data,
       train_data_folder: trainDataFolder.value.replace('./', '') || 'out',
+      save_folder: saveFolder.value,
       micro_bsz: trainParams.micro_bsz,
       epoch_save: trainParams.epoch_save,
       epoch_steps: trainParams.epoch_steps,
@@ -628,6 +662,7 @@ const clearSavedParams = () => {
   localStorage.removeItem('trainParams')
   localStorage.removeItem('loraParams')
   localStorage.removeItem('trainDataFolder')
+  localStorage.removeItem('saveFolder')
   ElMessage.success('已清除已保存的参数')
 }
 
@@ -741,6 +776,12 @@ onMounted(async () => {
     } catch (error) {
       console.error('获取训练数据文件列表失败', error)
     }
+  }
+  
+  const savedSaveFolder = localStorage.getItem('saveFolder')
+  if (savedSaveFolder) {
+    saveFolder.value = savedSaveFolder
+    validateSaveFolder()
   }
   
   loadBaseModels()
@@ -898,6 +939,10 @@ onUnmounted(() => {
 
 .param-card :deep(.el-form-item__label) {
   font-weight: 500;
+}
+
+.is-invalid :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px #f56c6c inset;
 }
 
 .progress-info {
