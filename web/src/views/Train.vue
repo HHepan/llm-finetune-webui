@@ -1,6 +1,53 @@
 <template>
   <div class="page-container">
-    <div class="content-wrapper">
+    <!-- 顶部导航 -->
+    <el-tabs v-model="activeTab" class="train-tabs">
+      <el-tab-pane label="训练记录" name="record" />
+      <el-tab-pane label="启动训练" name="start" />
+    </el-tabs>
+
+    <!-- 训练记录页面 -->
+    <div v-show="activeTab === 'record'" class="record-view">
+      <el-table v-if="trainRecords.length > 0" :data="paginatedRecords" border stripe style="width: 100%">
+        <el-table-column prop="time" label="训练时间" width="180" align="center" />
+        <el-table-column prop="base_model" label="基底模型" />
+        <el-table-column prop="train_data" label="训练数据" />
+        <el-table-column label="操作" width="160" align="center">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" @click="showDetail(row)">详情</el-button>
+            <el-button size="small" type="danger" @click="confirmDeleteRecord(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-empty v-if="trainRecords.length === 0" description="暂无训练记录" />
+
+      <div v-if="trainRecords.length > 0" class="pagination-container">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="totalRecords"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
+
+      <el-dialog v-model="detailDialogVisible" title="训练详情" width="40%">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="训练时间">{{ currentDetail.time }}</el-descriptions-item>
+          <el-descriptions-item label="基底模型">{{ currentDetail.base_model }}</el-descriptions-item>
+          <el-descriptions-item label="训练数据">{{ currentDetail.train_data }}</el-descriptions-item>
+          <el-descriptions-item label="epoch_count">{{ currentDetail.params?.epoch_count }}</el-descriptions-item>
+          <el-descriptions-item label="lr_init">{{ currentDetail.params?.lr_init }}</el-descriptions-item>
+          <el-descriptions-item label="lora_r">{{ currentDetail.params?.lora_r }}</el-descriptions-item>
+        </el-descriptions>
+      </el-dialog>
+    </div>
+
+    <!-- 启动训练页面 -->
+    <div v-show="activeTab === 'start'" class="content-wrapper">
       <!-- 左侧参数设置区 -->
       <div class="left-panel">
         <!-- 训练参数 -->
@@ -252,7 +299,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { FullScreen } from '@element-plus/icons-vue'
 import axios from 'axios'
 
@@ -319,6 +366,74 @@ const autoScroll = ref(true)
 const stopConfirmDialogVisible = ref(false)
 const logScrollbarRef = ref(null)
 const inlineLogScrollbarRef = ref(null)
+
+const activeTab = ref('record')
+
+const trainRecords = ref([
+  { id: 1, time: '2026-04-13 12:10', base_model: 'xxxxxxxxxxxxxxxxx.pth', train_data: 'all_data.jsonl', params: { epoch_count: 3, lr_init: 2e-5, lora_r: 32 } },
+  { id: 2, time: '2026-04-12 10:00', base_model: 'model2.pth', train_data: 'data2.jsonl', params: { epoch_count: 2, lr_init: 1e-4, lora_r: 64 } },
+  { id: 3, time: '2026-04-11 09:30', base_model: 'RWKV-4-1.5B.pth', train_data: 'dataset_v2.jsonl', params: { epoch_count: 5, lr_init: 3e-5, lora_r: 32 } },
+  { id: 4, time: '2026-04-10 15:20', base_model: 'model_v1.pth', train_data: 'train_final.jsonl', params: { epoch_count: 3, lr_init: 2e-5, lora_r: 16 } },
+  { id: 5, time: '2026-04-09 11:00', base_model: 'checkpoint_4.5b.pth', train_data: 'qa_data.jsonl', params: { epoch_count: 4, lr_init: 1e-5, lora_r: 64 } },
+  { id: 6, time: '2026-04-08 14:45', base_model: 'base_model_v3.pth', train_data: 'chat_data.jsonl', params: { epoch_count: 2, lr_init: 5e-5, lora_r: 32 } },
+  { id: 7, time: '2026-04-07 08:30', base_model: 'rwkv_2.9b.pth', train_data: 'medical_qa.jsonl', params: { epoch_count: 6, lr_init: 2e-5, lora_r: 48 } },
+  { id: 8, time: '2026-04-06 16:10', base_model: 'pretrain_model.pth', train_data: 'user_logs.jsonl', params: { epoch_count: 3, lr_init: 3e-5, lora_r: 32 } },
+  { id: 9, time: '2026-04-05 10:20', base_model: 'finetune_latest.pth', train_data: 'code_examples.jsonl', params: { epoch_count: 5, lr_init: 1e-5, lora_r: 64 } },
+  { id: 10, time: '2026-04-04 13:00', base_model: 'model_v2.pth', train_data: 'instruction_data.jsonl', params: { epoch_count: 2, lr_init: 4e-5, lora_r: 32 } },
+  { id: 11, time: '2026-04-03 09:15', base_model: 'adapter_model.pth', train_data: 'domain_knowledge.jsonl', params: { epoch_count: 4, lr_init: 2e-5, lora_r: 48 } },
+  { id: 12, time: '2026-04-02 11:40', base_model: 'lora_weights.pth', train_data: 'science_qa.jsonl', params: { epoch_count: 3, lr_init: 1e-4, lora_r: 32 } },
+  { id: 13, time: '2026-04-01 14:25', base_model: 'experiment_v1.pth', train_data: 'general_data.jsonl', params: { epoch_count: 5, lr_init: 2e-5, lora_r: 64 } },
+  { id: 14, time: '2026-03-31 08:50', base_model: 'backup_model.pth', train_data: 'mixed_data.jsonl', params: { epoch_count: 2, lr_init: 3e-5, lora_r: 16 } },
+  { id: 15, time: '2026-03-30 10:30', base_model: 'production.pth', train_data: 'production_data.jsonl', params: { epoch_count: 6, lr_init: 2e-5, lora_r: 32 } },
+])
+
+const currentPage = ref(1)
+const pageSize = ref(10)
+const totalRecords = computed(() => trainRecords.value.length)
+
+const paginatedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return trainRecords.value.slice(start, end)
+})
+
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  currentPage.value = 1
+}
+
+const handleCurrentChange = (val) => {
+  currentPage.value = val
+}
+
+const detailDialogVisible = ref(false)
+const currentDetail = ref({})
+
+const showDetail = (row) => {
+  currentDetail.value = row
+  detailDialogVisible.value = true
+}
+
+const confirmDeleteRecord = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除该训练记录吗？`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    trainRecords.value = trainRecords.value.filter(r => r.id !== row.id)
+    const total = trainRecords.value.length
+    const maxPage = Math.ceil(total / pageSize.value)
+    if (currentPage.value > maxPage && maxPage > 0) {
+      currentPage.value = maxPage
+    }
+    ElMessage.success('删除成功')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
+}
 
 const clearLogs = () => {
   logs.value = []
@@ -563,6 +678,22 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.train-tabs {
+  margin-bottom: 20px;
+}
+
+.record-view {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .content-wrapper {
   display: flex;
   gap: 20px;
