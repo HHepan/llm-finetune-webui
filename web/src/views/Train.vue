@@ -10,8 +10,16 @@
     <div v-show="activeTab === 'record'" class="record-view">
       <el-table v-if="trainRecords.length > 0" :data="paginatedRecords" border stripe style="width: 100%">
         <el-table-column prop="time" label="训练时间" width="180" align="center" />
+        <el-table-column prop="folder_name" label="保存位置" width="180" />
         <el-table-column prop="base_model" label="基底模型" />
         <el-table-column prop="train_data" label="训练数据" />
+        <el-table-column prop="status" label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'completed' ? 'success' : row.status === 'running' ? 'warning' : 'info'">
+              {{ row.status === 'completed' ? '已完成' : row.status === 'running' ? '训练中' : '未知' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="160" align="center">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="showDetail(row)">详情</el-button>
@@ -50,7 +58,9 @@
                     <el-descriptions-item label="基底模型">{{ currentDetail.base_model }}</el-descriptions-item>
                     <el-descriptions-item label="训练数据">{{ currentDetail.train_data }}</el-descriptions-item>
                     <el-descriptions-item label="状态">
-                      <el-tag type="success">已完成</el-tag>
+                      <el-tag :type="currentDetail.state?.status === 'completed' ? 'success' : currentDetail.state?.status === 'running' ? 'warning' : currentDetail.state?.status === 'error' ? 'danger' : 'info'">
+                        {{ currentDetail.state?.status === 'completed' ? '已完成' : currentDetail.state?.status === 'running' ? '训练中' : currentDetail.state?.status === 'error' ? '错误' : '未知' }}
+                      </el-tag>
                     </el-descriptions-item>
                   </el-descriptions>
                 </el-card>
@@ -64,19 +74,19 @@
                   <div class="detail-progress">
                     <div class="progress-item">
                       <span class="progress-label">Epoch 进度</span>
-                      <el-progress class="progress-bar" :percentage="100" :stroke-width="12" status="success" />
+                      <el-progress class="progress-bar" :percentage="currentDetail.state ? Math.round((currentDetail.state.current_epoch / currentDetail.state.total_epochs) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
                     </div>
                     <div class="progress-item">
                       <span class="progress-label">Step 进度</span>
-                      <el-progress class="progress-bar" :percentage="100" :stroke-width="12" status="success" />
+                      <el-progress class="progress-bar" :percentage="currentDetail.state ? Math.round((currentDetail.state.current_step / currentDetail.state.total_steps) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
                     </div>
                     <div class="progress-detail">
-                      <span>Epoch: {{ currentDetail.params?.epoch_count || 1 }} / {{ currentDetail.params?.epoch_count || 1 }}</span>
-                      <span>Step: {{ currentDetail.params?.epoch_steps || 1000 }} / {{ currentDetail.params?.epoch_steps || 1000 }}</span>
+                      <span>Epoch: {{ currentDetail.state?.current_epoch || 0 }} / {{ currentDetail.state?.total_epochs || 1 }}</span>
+                      <span>Step: {{ currentDetail.state?.current_step || 0 }} / {{ currentDetail.state?.total_steps || 1 }}</span>
                     </div>
                     <div class="progress-metrics">
-                      <span>loss: {{ (Math.random() * 2).toFixed(3) }}</span>
-                      <span>lr: {{ currentDetail.params?.lr_init || 2e-5 }}</span>
+                      <span>loss: {{ currentDetail.state?.sum_loss?.toFixed(3) || 0 }}</span>
+                      <span>lr: {{ currentDetail.state?.current_lr || 0 }}</span>
                     </div>
                   </div>
                 </el-card>
@@ -119,7 +129,7 @@
 
           <el-tab-pane label="损失曲线" name="loss">
             <div class="loss-chart detail-loss-chart">
-              <canvas ref="detailLossCanvas" width="600" height="250"></canvas>
+              <div ref="detailLossChartRef" style="width: 100%; height: 250px;"></div>
             </div>
           </el-tab-pane>
 
@@ -157,10 +167,12 @@
                   placeholder="请输入文件夹名称（必填）"
                   style="flex: 0 0 30%;"
                   :class="{ 'is-invalid': saveFolderInvalid }"
+                  :disabled="trainingStatus === 'running'"
                   @input="validateSaveFolder"
                 />
               </div>
               <div v-if="saveFolderInvalid" class="el-form-item__error">只允许输入字母、数字、下划线和连字符</div>
+              <div v-else-if="saveFolderExists" class="el-form-item__error">该文件夹名称已存在，请使用其他名称</div>
             </el-form-item>
 
             <el-form-item label="基底模型">
@@ -324,7 +336,7 @@
             <div v-if="lossData.length === 0" class="loss-empty">
               暂无训练数据
             </div>
-            <canvas ref="lossCanvas" width="400" height="200"></canvas>
+            <div v-show="lossData.length > 0" ref="lossChartRef" style="width: 100%; height: 200px;"></div>
           </div>
         </el-card>
 
@@ -404,6 +416,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { FullScreen } from '@element-plus/icons-vue'
 import axios from 'axios'
+import * as echarts from 'echarts'
 
 const trainParams = reactive({
   base_model: '',
@@ -444,6 +457,8 @@ const dataList = ref([])
 
 const saveFolder = ref('')
 const saveFolderInvalid = ref(false)
+const saveFolderExists = ref(false)
+const existingFolders = ref([])
 
 const trainingStatus = ref('idle')
 const currentEpoch = ref(0)
@@ -466,18 +481,24 @@ const stepProgress = computed(() => {
 const canStartTraining = computed(() => {
   return (
     !saveFolderInvalid.value &&
+    !saveFolderExists.value &&
     saveFolder.value.trim() !== '' &&
     trainParams.base_model !== '' &&
     trainParams.train_data !== ''
   )
 })
 
-const validateSaveFolder = () => {
+const validateSaveFolder = (checkExists = true) => {
   const regex = /^[a-zA-Z0-9_-]*$/
   if (saveFolder.value && !regex.test(saveFolder.value)) {
     saveFolderInvalid.value = true
+    saveFolderExists.value = false
+  } else if (checkExists && saveFolder.value && existingFolders.value.includes(saveFolder.value)) {
+    saveFolderInvalid.value = false
+    saveFolderExists.value = true
   } else {
     saveFolderInvalid.value = false
+    saveFolderExists.value = false
   }
 }
 const logs = ref([])
@@ -494,24 +515,12 @@ const activeTab = ref('record')
 
 const detailActiveTab = ref('info')
 const detailLossCanvas = ref(null)
+const lossChartRef = ref(null)
+const detailLossChartRef = ref(null)
+let lossChartInstance = null
+let detailLossChartInstance = null
 
-const trainRecords = ref([
-  { id: 1, time: '2026-04-13 12:10', base_model: 'xxxxxxxxxxxxxxxxx.pth', train_data: 'all_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 2e-5, lr_final: 2e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Loading model...', '[INFO] Model loaded successfully', '[INFO] Starting training...', 'Epoch 1/3, Step 100/1000, loss: 1.234', 'Epoch 2/3, Step 500/1000, loss: 0.876', 'Epoch 3/3, Step 1000/1000, loss: 0.543', '[INFO] Training completed'] },
-  { id: 2, time: '2026-04-12 10:00', base_model: 'model2.pth', train_data: 'data2.jsonl', params: { model_size: '1.5B', micro_bsz: 2, epoch_save: 1, epoch_steps: 800, ctx_len: 512, epoch_count: 2, lr_init: 1e-4, lr_final: 1e-4, lora_r: 64, lora_alpha: 64, lora_dropout: 0.01 }, logs: ['[INFO] Loading model...', '[INFO] Model loaded successfully', '[INFO] Starting training...', 'Epoch 1/2, loss: 1.456', 'Epoch 2/2, loss: 0.987', '[INFO] Training completed'] },
-  { id: 3, time: '2026-04-11 09:30', base_model: 'RWKV-4-1.5B.pth', train_data: 'dataset_v2.jsonl', params: { model_size: '1.5B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1200, ctx_len: 512, epoch_count: 5, lr_init: 3e-5, lr_final: 3e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 4, time: '2026-04-10 15:20', base_model: 'model_v1.pth', train_data: 'train_final.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 2e-5, lr_final: 2e-5, lora_r: 16, lora_alpha: 16, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 5, time: '2026-04-09 11:00', base_model: 'checkpoint_4.5b.pth', train_data: 'qa_data.jsonl', params: { model_size: '0.4B', micro_bsz: 1, epoch_save: 1, epoch_steps: 600, ctx_len: 256, epoch_count: 4, lr_init: 1e-5, lr_final: 1e-5, lora_r: 64, lora_alpha: 64, lora_dropout: 0.02 }, logs: ['[INFO] Training completed'] },
-  { id: 6, time: '2026-04-08 14:45', base_model: 'base_model_v3.pth', train_data: 'chat_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 500, ctx_len: 512, epoch_count: 2, lr_init: 5e-5, lr_final: 5e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 7, time: '2026-04-07 08:30', base_model: 'rwkv_2.9b.pth', train_data: 'medical_qa.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1500, ctx_len: 512, epoch_count: 6, lr_init: 2e-5, lr_final: 2e-5, lora_r: 48, lora_alpha: 48, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 8, time: '2026-04-06 16:10', base_model: 'pretrain_model.pth', train_data: 'user_logs.jsonl', params: { model_size: '2.9B', micro_bsz: 2, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 3e-5, lr_final: 3e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 9, time: '2026-04-05 10:20', base_model: 'finetune_latest.pth', train_data: 'code_examples.jsonl', params: { model_size: '7B', micro_bsz: 1, epoch_save: 1, epoch_steps: 2000, ctx_len: 1024, epoch_count: 5, lr_init: 1e-5, lr_final: 1e-5, lora_r: 64, lora_alpha: 64, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 10, time: '2026-04-04 13:00', base_model: 'model_v2.pth', train_data: 'instruction_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 500, ctx_len: 512, epoch_count: 2, lr_init: 4e-5, lr_final: 4e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 11, time: '2026-04-03 09:15', base_model: 'adapter_model.pth', train_data: 'domain_knowledge.jsonl', params: { model_size: '0.1B', micro_bsz: 1, epoch_save: 1, epoch_steps: 800, ctx_len: 256, epoch_count: 4, lr_init: 2e-5, lr_final: 2e-5, lora_r: 48, lora_alpha: 48, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 12, time: '2026-04-02 11:40', base_model: 'lora_weights.pth', train_data: 'science_qa.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1000, ctx_len: 512, epoch_count: 3, lr_init: 1e-4, lr_final: 1e-4, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 13, time: '2026-04-01 14:25', base_model: 'experiment_v1.pth', train_data: 'general_data.jsonl', params: { model_size: '7B', micro_bsz: 1, epoch_save: 1, epoch_steps: 1500, ctx_len: 1024, epoch_count: 5, lr_init: 2e-5, lr_final: 2e-5, lora_r: 64, lora_alpha: 64, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-  { id: 14, time: '2026-03-31 08:50', base_model: 'backup_model.pth', train_data: 'mixed_data.jsonl', params: { model_size: '0.4B', micro_bsz: 1, epoch_save: 1, epoch_steps: 400, ctx_len: 256, epoch_count: 2, lr_init: 3e-5, lr_final: 3e-5, lora_r: 16, lora_alpha: 16, lora_dropout: 0.02 }, logs: ['[INFO] Training completed'] },
-  { id: 15, time: '2026-03-30 10:30', base_model: 'production.pth', train_data: 'production_data.jsonl', params: { model_size: '2.9B', micro_bsz: 1, epoch_save: 1, epoch_steps: 2000, ctx_len: 512, epoch_count: 6, lr_init: 2e-5, lr_final: 2e-5, lora_r: 32, lora_alpha: 32, lora_dropout: 0.01 }, logs: ['[INFO] Training completed'] },
-])
+const trainRecords = ref([])
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -535,9 +544,20 @@ const handleCurrentChange = (val) => {
 const detailDialogVisible = ref(false)
 const currentDetail = ref({})
 
-const showDetail = (row) => {
-  currentDetail.value = row
-  detailDialogVisible.value = true
+const showDetail = async (row) => {
+  try {
+    const res = await axios.get(`/api/train/records/${row.folder_name}`)
+    currentDetail.value = {
+      ...row,
+      params: res.data.params,
+      state: res.data.state,
+      loss_history: res.data.loss_history,
+      logs: res.data.logs
+    }
+    detailDialogVisible.value = true
+  } catch (error) {
+    ElMessage.error('获取详情失败')
+  }
 }
 
 const confirmDeleteRecord = async (row) => {
@@ -547,7 +567,8 @@ const confirmDeleteRecord = async (row) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    trainRecords.value = trainRecords.value.filter(r => r.id !== row.id)
+    await axios.delete(`/api/train/records/${row.folder_name}`)
+    trainRecords.value = trainRecords.value.filter(r => r.folder_name !== row.folder_name)
     const total = trainRecords.value.length
     const maxPage = Math.ceil(total / pageSize.value)
     if (currentPage.value > maxPage && maxPage > 0) {
@@ -585,6 +606,15 @@ const loadTrainDataFolders = async () => {
   }
 }
 
+const loadExistingFolders = async () => {
+  try {
+    const res = await axios.get('/api/train/folders')
+    existingFolders.value = res.data
+  } catch (error) {
+    console.error('获取已存在文件夹列表失败', error)
+  }
+}
+
 const onTrainDataFolderChange = async () => {
   trainParams.train_data = ''
   trainDataFileList.value = []
@@ -599,6 +629,15 @@ const onTrainDataFolderChange = async () => {
 
 const onBaseModelChange = () => {
   trainParams.model_size = '2.9B'
+}
+
+const loadTrainRecords = async () => {
+  try {
+    const res = await axios.get('/api/train/records')
+    trainRecords.value = res.data
+  } catch (error) {
+    console.error('获取训练记录列表失败', error)
+  }
 }
 
 const startTraining = async () => {
@@ -723,34 +762,148 @@ const stopPolling = () => {
 }
 
 const drawLossChart = () => {
-  if (!lossCanvas.value || lossData.value.length === 0) return
+  if (!lossChartRef.value || lossData.value.length === 0) return
 
-  const canvas = lossCanvas.value
-  const ctx = canvas.getContext('2d')
-  const width = canvas.width
-  const height = canvas.height
+  if (!lossChartInstance) {
+    lossChartInstance = echarts.init(lossChartRef.value)
+  }
 
-  ctx.clearRect(0, 0, width, height)
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const point = params[0]
+        return `Step: ${point.value[0]}<br/>Loss: ${point.value[1]?.toFixed(4) || '-'}`
+      }
+    },
+    grid: {
+      left: '10%',
+      right: '10%',
+      top: '10%',
+      bottom: '15%'
+    },
+    xAxis: {
+      type: 'value',
+      name: 'Step',
+      nameLocation: 'middle',
+      nameGap: 25,
+      splitLine: {
+        show: false
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Loss',
+      splitLine: {
+        lineStyle: {
+          type: 'dashed'
+        }
+      }
+    },
+    series: [{
+      type: 'line',
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 4,
+      data: lossData.value.map(d => [d.step, d.loss]),
+      lineStyle: {
+        color: '#409eff',
+        width: 2
+      },
+      itemStyle: {
+        color: '#409eff'
+      },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
+            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
+          ]
+        }
+      }
+    }]
+  }
 
-  ctx.strokeStyle = '#409eff'
-  ctx.lineWidth = 2
-  ctx.beginPath()
+  lossChartInstance.setOption(option)
+}
 
-  const maxLoss = Math.max(...lossData.value.map(d => d.loss))
-  const minLoss = Math.min(...lossData.value.map(d => d.loss))
-  const lossRange = maxLoss - minLoss || 1
+watch(detailActiveTab, async (newVal) => {
+  if (newVal === 'loss') {
+    await nextTick()
+    drawDetailLossChart()
+  }
+})
 
-  lossData.value.forEach((point, index) => {
-    const x = (index / (lossData.value.length - 1)) * width
-    const y = height - ((point.loss - minLoss) / lossRange) * (height - 40) - 20
-    if (index === 0) {
-      ctx.moveTo(x, y)
-    } else {
-      ctx.lineTo(x, y)
-    }
-  })
+const drawDetailLossChart = () => {
+  if (!detailLossChartRef.value || !currentDetail.value.loss_history || currentDetail.value.loss_history.length === 0) return
 
-  ctx.stroke()
+  if (!detailLossChartInstance) {
+    detailLossChartInstance = echarts.init(detailLossChartRef.value)
+  }
+
+  const lossData = currentDetail.value.loss_history
+
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const point = params[0]
+        return `Step: ${point.value[0]}<br/>Loss: ${point.value[1]?.toFixed(4) || '-'}`
+      }
+    },
+    grid: {
+      left: '10%',
+      right: '10%',
+      top: '10%',
+      bottom: '15%'
+    },
+    xAxis: {
+      type: 'value',
+      name: 'Step',
+      nameLocation: 'middle',
+      nameGap: 25,
+      splitLine: {
+        show: false
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Loss',
+      splitLine: {
+        lineStyle: {
+          type: 'dashed'
+        }
+      }
+    },
+    series: [{
+      type: 'line',
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 4,
+      data: lossData.map(d => [d.step, d.loss]),
+      lineStyle: {
+        color: '#409eff',
+        width: 2
+      },
+      itemStyle: {
+        color: '#409eff'
+      },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
+            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
+          ]
+        }
+      }
+    }]
+  }
+
+  detailLossChartInstance.setOption(option)
 }
 
 onMounted(async () => {
@@ -786,6 +939,8 @@ onMounted(async () => {
   
   loadBaseModels()
   loadTrainDataFolders()
+  loadExistingFolders()
+  loadTrainRecords()
   
   try {
     const statusRes = await axios.get('/api/train/status')
@@ -809,6 +964,14 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  if (lossChartInstance) {
+    lossChartInstance.dispose()
+    lossChartInstance = null
+  }
+  if (detailLossChartInstance) {
+    detailLossChartInstance.dispose()
+    detailLossChartInstance = null
+  }
 })
 </script>
 

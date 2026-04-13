@@ -4,6 +4,7 @@ import signal
 import shutil
 import subprocess
 import threading
+import time
 from typing import Dict, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,12 +16,13 @@ router = APIRouter(prefix="/api/train", tags=["train"])
 CHECKPOINTS_DIR = "/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints"
 
 current_save_folder = None
+current_params = None
 
 def get_save_dir(save_folder: str) -> str:
     return os.path.join(CHECKPOINTS_DIR, save_folder)
 
 def get_state_file(save_folder: str):
-    return os.path.join(get_save_dir(save_folder), "train_state.json")
+    return os.path.join(get_save_dir(save_folder), "train_inf.json")
 
 def get_logs_file(save_folder: str):
     return os.path.join(get_save_dir(save_folder), "train_logs.txt")
@@ -77,10 +79,15 @@ def load_state_from_files(save_folder: str):
     if os.path.exists(state_file):
         try:
             with open(state_file, 'r') as f:
-                saved_state = json.load(f)
-                for key in ["status", "start_time", "current_epoch", "current_step", "total_epochs", "total_steps", "current_lr", "its_per_sec", "sum_loss"]:
-                    if key in saved_state:
-                        train_state[key] = saved_state[key]
+                saved_data = json.load(f)
+                if "status" in saved_data:
+                    saved_status = saved_data["status"]
+                    for key in ["status", "start_time", "current_epoch", "current_step", "total_epochs", "total_steps", "current_lr", "its_per_sec", "sum_loss"]:
+                        if key in saved_status:
+                            train_state[key] = saved_status[key]
+                if "params" in saved_data:
+                    global current_params
+                    current_params = saved_data["params"]
         except Exception:
             pass
 
@@ -106,7 +113,7 @@ def load_state_from_files(save_folder: str):
             pass
 
 
-def save_state_to_files(save_folder: str):
+def save_state_to_files(save_folder: str, params: Dict = None):
     save_dir = get_save_dir(save_folder)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -114,7 +121,7 @@ def save_state_to_files(save_folder: str):
     logs_file = get_logs_file(save_folder)
     loss_file = get_loss_file(save_folder)
 
-    state_to_save = {
+    status_data = {
         "status": train_state["status"],
         "start_time": train_state["start_time"],
         "current_epoch": train_state["current_epoch"],
@@ -125,6 +132,14 @@ def save_state_to_files(save_folder: str):
         "its_per_sec": train_state.get("its_per_sec", 0),
         "sum_loss": train_state.get("sum_loss", 0),
     }
+
+    params_data = params if params else {}
+
+    state_to_save = {
+        "status": status_data,
+        "params": params_data
+    }
+
     with open(state_file, 'w') as f:
         json.dump(state_to_save, f)
 
@@ -165,7 +180,7 @@ def create_log_callback():
         with log_lock:
             train_state["logs"].append(message)
             if current_save_folder:
-                save_state_to_files(current_save_folder)
+                save_state_to_files(current_save_folder, current_params)
     return on_log
 
 
@@ -185,7 +200,7 @@ def create_progress_callback():
                 "epoch": current_epoch
             })
             if current_save_folder:
-                save_state_to_files(current_save_folder)
+                save_state_to_files(current_save_folder, current_params)
     return on_progress
 
 
@@ -193,7 +208,7 @@ def create_complete_callback():
     def on_complete():
         train_state["status"] = "completed"
         if current_save_folder:
-            save_state_to_files(current_save_folder)
+            save_state_to_files(current_save_folder, current_params)
             if os.path.exists(get_pid_file(current_save_folder)):
                 os.remove(get_pid_file(current_save_folder))
     return on_complete
@@ -205,7 +220,7 @@ def create_error_callback():
         with log_lock:
             train_state["logs"].append(f"错误: {message}")
             if current_save_folder:
-                save_state_to_files(current_save_folder)
+                save_state_to_files(current_save_folder, current_params)
                 if os.path.exists(get_pid_file(current_save_folder)):
                     os.remove(get_pid_file(current_save_folder))
     return on_error
@@ -259,12 +274,13 @@ async def get_loss() -> List[Dict]:
 
 @router.post("/start")
 async def start_training(req: TrainRequest):
-    global train_thread, current_save_folder
+    global train_thread, current_save_folder, current_params
     
     if train_state["status"] == "running":
         raise HTTPException(status_code=400, detail="训练正在进行中")
 
     current_save_folder = req.save_folder
+    current_params = req.model_dump()
     
     import time
     train_state["status"] = "running"
@@ -281,7 +297,7 @@ async def start_training(req: TrainRequest):
 
     print(f"[DEBUG] start_training called")
 
-    save_state_to_files(current_save_folder)
+    save_state_to_files(current_save_folder, current_params)
     save_pid(current_save_folder)
 
     params = req.model_dump()
@@ -398,3 +414,103 @@ async def stop_training():
     training_process = None
     
     return {"message": "训练已停止", "status": "idle"}
+
+
+@router.get("/folders")
+async def get_existing_folders():
+    """获取已存在的训练文件夹列表"""
+    checkpoints_path = CHECKPOINTS_DIR
+    if os.path.exists(checkpoints_path):
+        folders = [f for f in os.listdir(checkpoints_path) 
+                   if os.path.isdir(os.path.join(checkpoints_path, f))]
+        return folders
+    return []
+
+
+@router.get("/records")
+async def get_train_records():
+    """获取训练记录列表"""
+    checkpoints_path = CHECKPOINTS_DIR
+    records = []
+    if os.path.exists(checkpoints_path):
+        for folder in os.listdir(checkpoints_path):
+            folder_path = os.path.join(checkpoints_path, folder)
+            if os.path.isdir(folder_path):
+                state_file = os.path.join(folder_path, "train_inf.json")
+                if os.path.exists(state_file):
+                    try:
+                        with open(state_file, 'r') as f:
+                            data = json.load(f)
+                            params = data.get("params", {})
+                            status_data = data.get("status", {})
+                            status = status_data.get("status", "unknown")
+                            start_time = status_data.get("start_time", 0)
+                            time_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(start_time)) if start_time else "未知"
+                            records.append({
+                                "folder_name": folder,
+                                "time": time_str,
+                                "base_model": params.get("base_model", "未知"),
+                                "train_data": params.get("train_data", "未知"),
+                                "status": status
+                            })
+                    except Exception:
+                        pass
+    return records
+
+
+@router.get("/records/{folder_name}")
+async def get_record_detail(folder_name: str):
+    """获取单条训练记录详情"""
+    folder_path = os.path.join(CHECKPOINTS_DIR, folder_name)
+    if not os.path.exists(folder_path):
+        raise HTTPException(status_code=404, detail="记录不存在")
+    
+    result = {"folder_name": folder_name}
+    
+    state_file = os.path.join(folder_path, "train_inf.json")
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, 'r') as f:
+                data = json.load(f)
+                result["params"] = data.get("params", {})
+                result["state"] = data.get("status", {})
+        except Exception:
+            pass
+    
+    loss_file = os.path.join(folder_path, "loss_history.jsonl")
+    loss_history = []
+    if os.path.exists(loss_file):
+        try:
+            with open(loss_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            loss_history.append(json.loads(line))
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+    result["loss_history"] = loss_history
+    
+    logs_file = os.path.join(folder_path, "train_logs.txt")
+    logs = []
+    if os.path.exists(logs_file):
+        try:
+            with open(logs_file, 'r') as f:
+                logs = f.read().splitlines()
+        except Exception:
+            pass
+    result["logs"] = logs
+    
+    return result
+
+
+@router.delete("/records/{folder_name}")
+async def delete_record(folder_name: str):
+    """删除训练记录"""
+    folder_path = os.path.join(CHECKPOINTS_DIR, folder_name)
+    if not os.path.exists(folder_path):
+        raise HTTPException(status_code=404, detail="记录不存在")
+    
+    shutil.rmtree(folder_path)
+    return {"message": "删除成功"}
