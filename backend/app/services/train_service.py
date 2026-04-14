@@ -180,6 +180,8 @@ def run_training(
         
         epoch_pattern = re.compile(r'Epoch\s+(\d+)/(\d+)\s+\|\s+Step\s+(\d+)/(\d+)\s+\|\s+Loss:\s+([\d.]+)')
         
+        current_total_epochs = None
+        
         line_count = 0
         for line in iter(process.stdout.readline, ''):
             line_count += 1
@@ -201,7 +203,7 @@ def run_training(
             if tqdm_data:
                 on_progress(
                     tqdm_data["current_epoch"],
-                    tqdm_data["total_epochs"],
+                    current_total_epochs if current_total_epochs else 0,
                     tqdm_data["current_step"],
                     tqdm_data["total_steps"],
                     tqdm_data["loss"],
@@ -214,12 +216,12 @@ def run_training(
             match = epoch_pattern.search(line)
             if match:
                 current_epoch = int(match.group(1))
-                total_epochs = int(match.group(2))
+                current_total_epochs = int(match.group(2))
                 current_step = int(match.group(3))
                 total_steps = int(match.group(4))
                 loss = float(match.group(5))
                 
-                on_progress(current_epoch, total_epochs, current_step, total_steps, loss)
+                on_progress(current_epoch, current_total_epochs, current_step, total_steps, loss)
             
             if not tqdm_data and not match:
                 on_log(line.strip())

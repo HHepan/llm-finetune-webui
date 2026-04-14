@@ -22,8 +22,8 @@
         <el-table-column prop="train_data" label="训练数据" />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'completed' ? 'success' : row.status === 'running' ? 'warning' : 'info'">
-              {{ row.status === 'completed' ? '已完成' : row.status === 'running' ? '训练中' : '未知' }}
+            <el-tag :type="row.status === 'completed' ? 'success' : row.status === 'running' ? 'warning' : row.status === 'stopped' ? 'info' : 'info'">
+              {{ row.status === 'completed' ? '已完成' : row.status === 'running' ? '训练中' : row.status === 'stopped' ? '被停止' : '未知' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -65,8 +65,8 @@
                     <el-descriptions-item label="基底模型">{{ currentDetail.base_model }}</el-descriptions-item>
                     <el-descriptions-item label="训练数据">{{ currentDetail.train_data }}</el-descriptions-item>
                     <el-descriptions-item label="状态">
-                      <el-tag :type="currentDetail.state?.status === 'completed' ? 'success' : currentDetail.state?.status === 'running' ? 'warning' : currentDetail.state?.status === 'error' ? 'danger' : 'info'">
-                        {{ currentDetail.state?.status === 'completed' ? '已完成' : currentDetail.state?.status === 'running' ? '训练中' : currentDetail.state?.status === 'error' ? '错误' : '未知' }}
+                      <el-tag :type="currentDetail.state?.status === 'completed' ? 'success' : currentDetail.state?.status === 'running' ? 'warning' : currentDetail.state?.status === 'error' ? 'danger' : currentDetail.state?.status === 'stopped' ? 'info' : 'info'">
+                        {{ currentDetail.state?.status === 'completed' ? '已完成' : currentDetail.state?.status === 'running' ? '训练中' : currentDetail.state?.status === 'error' ? '错误' : currentDetail.state?.status === 'stopped' ? '被停止' : '未知' }}
                       </el-tag>
                     </el-descriptions-item>
                   </el-descriptions>
