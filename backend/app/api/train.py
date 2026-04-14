@@ -121,12 +121,14 @@ def save_state_to_files(save_folder: str, params: Dict = None):
     logs_file = get_logs_file(save_folder)
     loss_file = get_loss_file(save_folder)
 
+    total_epochs = params.get("epoch_count", 1) if params else train_state.get("total_epochs", 1)
+
     status_data = {
         "status": train_state["status"],
         "start_time": train_state["start_time"],
         "current_epoch": train_state["current_epoch"],
         "current_step": train_state["current_step"],
-        "total_epochs": train_state["total_epochs"],
+        "total_epochs": total_epochs,
         "total_steps": train_state["total_steps"],
         "current_lr": train_state.get("current_lr", 0),
         "its_per_sec": train_state.get("its_per_sec", 0),
@@ -188,8 +190,6 @@ def create_progress_callback():
     def on_progress(current_epoch: int, total_epochs: int, current_step: int, total_steps: int, loss: float, lr: float = 0, its_per_sec: float = 0, sum_loss: float = 0):
         train_state["current_epoch"] = current_epoch
         train_state["current_step"] = current_step
-        train_state["total_epochs"] = total_epochs
-        train_state["total_steps"] = total_steps
         train_state["current_lr"] = lr
         train_state["its_per_sec"] = its_per_sec
         train_state["sum_loss"] = sum_loss
@@ -417,17 +417,10 @@ async def stop_training():
     stop_event.clear()
     
     if current_save_folder:
-        save_dir = get_save_dir(current_save_folder)
-        if os.path.exists(save_dir):
-            pth_files = [f for f in os.listdir(save_dir) if f.endswith('.pth')]
-            if not pth_files:
-                shutil.rmtree(save_dir)
-            else:
-                for f in os.listdir(save_dir):
-                    if not f.endswith('.pth'):
-                        file_path = os.path.join(save_dir, f)
-                        if os.path.isfile(file_path):
-                            os.remove(file_path)
+        train_state["status"] = "stopped"
+        save_state_to_files(current_save_folder, current_params)
+        if os.path.exists(get_pid_file(current_save_folder)):
+            os.remove(get_pid_file(current_save_folder))
     
     train_state["status"] = "idle"
     train_state["start_time"] = 0
