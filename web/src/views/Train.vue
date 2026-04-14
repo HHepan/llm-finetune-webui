@@ -1083,7 +1083,6 @@ onUnmounted(() => {
 
 .record-view {
   background: #fff;
-  padding: 20px;
   border-radius: 8px;
 }
 
