@@ -3,7 +3,14 @@
     <!-- 顶部导航 -->
     <el-tabs v-model="activeTab" class="train-tabs">
       <el-tab-pane label="训练记录" name="record" />
-      <el-tab-pane label="启动训练" name="start" />
+      <el-tab-pane name="start">
+        <template #label>
+          <span :class="{ 'is-training': trainingStatus === 'running' }">
+            <el-icon v-if="trainingStatus === 'running'" class="is-loading"><Loading /></el-icon>
+            {{ trainingStatus === 'running' ? `训练中: ${saveFolder}` : '启动训练' }}
+          </span>
+        </template>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- 训练记录页面 -->
@@ -134,7 +141,10 @@
           </el-tab-pane>
 
           <el-tab-pane label="训练日志" name="logs">
-            <el-scrollbar class="detail-log-scrollbar">
+            <div class="log-dialog-header">
+              <el-switch v-model="detailAutoScroll" active-text="自动滚动" />
+            </div>
+            <el-scrollbar ref="detailLogScrollbarRef" class="detail-log-scrollbar">
               <div class="log-content">
                 <div v-for="(log, index) in currentDetail.logs || []" :key="index" class="log-line">{{ log }}</div>
                 <div v-if="!currentDetail.logs || currentDetail.logs.length === 0" class="log-empty">
@@ -414,7 +424,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { FullScreen } from '@element-plus/icons-vue'
+import { FullScreen, Loading } from '@element-plus/icons-vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 
@@ -514,6 +524,8 @@ const inlineLogScrollbarRef = ref(null)
 const activeTab = ref('record')
 
 const detailActiveTab = ref('info')
+const detailLogScrollbarRef = ref(null)
+const detailAutoScroll = ref(true)
 const detailLossCanvas = ref(null)
 const lossChartRef = ref(null)
 const detailLossChartRef = ref(null)
@@ -543,15 +555,21 @@ const handleCurrentChange = (val) => {
 
 const detailDialogVisible = ref(false)
 const currentDetail = ref({})
+const detailFolderName = ref('')
+let detailPollTimer = null
 
 const showDetail = async (row) => {
+  detailFolderName.value = row.folder_name
   try {
-    const res = await axios.get(`/api/train/records/${row.folder_name}`)
+    const [res, lossRes] = await Promise.all([
+      axios.get(`/api/train/records/${row.folder_name}`),
+      axios.get(`/api/train/loss-file/${row.folder_name}`)
+    ])
     currentDetail.value = {
       ...row,
       params: res.data.params,
       state: res.data.state,
-      loss_history: res.data.loss_history,
+      loss_history: lossRes.data,
       logs: res.data.logs
     }
     detailDialogVisible.value = true
@@ -560,7 +578,35 @@ const showDetail = async (row) => {
   }
 }
 
+const detailRefresh = async () => {
+  if (!detailFolderName.value) return
+  try {
+    const [res, lossRes] = await Promise.all([
+      axios.get(`/api/train/records/${detailFolderName.value}`),
+      axios.get(`/api/train/loss-file/${detailFolderName.value}`)
+    ])
+    currentDetail.value = {
+      ...currentDetail.value,
+      state: res.data.state,
+      loss_history: lossRes.data,
+      logs: res.data.logs
+    }
+    await nextTick()
+    if (detailActiveTab.value === 'loss') {
+      drawDetailLossChart()
+    } else if (detailActiveTab.value === 'logs' && detailAutoScroll.value && detailLogScrollbarRef.value) {
+      detailLogScrollbarRef.value.setScrollTop(detailLogScrollbarRef.value.wrapRef.scrollHeight)
+    }
+  } catch (error) {
+    console.error('刷新详情失败', error)
+  }
+}
+
 const confirmDeleteRecord = async (row) => {
+  if (row.status === 'running') {
+    ElMessage.warning('正在训练中，请先停止训练')
+    return
+  }
   try {
     await ElMessageBox.confirm(`确定要删除该训练记录吗？`, '删除确认', {
       confirmButtonText: '确定删除',
@@ -646,7 +692,6 @@ const startTraining = async () => {
     localStorage.setItem('trainParams', JSON.stringify(trainParams))
     localStorage.setItem('loraParams', JSON.stringify(loraParams))
     localStorage.setItem('trainDataFolder', trainDataFolder.value)
-    localStorage.setItem('saveFolder', saveFolder.value)
     
     await axios.post('/api/train/start', {
       base_model: trainParams.base_model,
@@ -701,7 +746,6 @@ const clearSavedParams = () => {
   localStorage.removeItem('trainParams')
   localStorage.removeItem('loraParams')
   localStorage.removeItem('trainDataFolder')
-  localStorage.removeItem('saveFolder')
   ElMessage.success('已清除已保存的参数')
 }
 
@@ -711,7 +755,7 @@ const startPolling = () => {
       const [statusRes, logsRes, lossRes] = await Promise.all([
         axios.get('/api/train/status'),
         axios.get('/api/train/logs'),
-        axios.get('/api/train/loss')
+        saveFolder.value ? axios.get(`/api/train/loss-file/${saveFolder.value}`) : Promise.resolve({ data: [] })
       ])
 
       const status = statusRes.data
@@ -787,6 +831,8 @@ const drawLossChart = () => {
       name: 'Step',
       nameLocation: 'middle',
       nameGap: 25,
+      min: 0,
+      max: 'dataMax',
       splitLine: {
         show: false
       }
@@ -827,7 +873,25 @@ const drawLossChart = () => {
   }
 
   lossChartInstance.setOption(option)
+  lossChartInstance.resize()
 }
+
+watch(detailDialogVisible, async (newVal) => {
+  if (newVal) {
+    detailPollTimer = setInterval(detailRefresh, 2000)
+  } else {
+    if (detailPollTimer) {
+      clearInterval(detailPollTimer)
+      detailPollTimer = null
+    }
+  }
+})
+
+watch(activeTab, async (newVal) => {
+  if (newVal === 'record') {
+    await loadTrainRecords()
+  }
+})
 
 watch(detailActiveTab, async (newVal) => {
   if (newVal === 'loss') {
@@ -864,6 +928,8 @@ const drawDetailLossChart = () => {
       name: 'Step',
       nameLocation: 'middle',
       nameGap: 25,
+      min: 0,
+      max: 'dataMax',
       splitLine: {
         show: false
       }
@@ -904,6 +970,7 @@ const drawDetailLossChart = () => {
   }
 
   detailLossChartInstance.setOption(option)
+  detailLossChartInstance.resize()
 }
 
 onMounted(async () => {
@@ -931,12 +998,6 @@ onMounted(async () => {
     }
   }
   
-  const savedSaveFolder = localStorage.getItem('saveFolder')
-  if (savedSaveFolder) {
-    saveFolder.value = savedSaveFolder
-    validateSaveFolder()
-  }
-  
   loadBaseModels()
   loadTrainDataFolders()
   loadExistingFolders()
@@ -947,14 +1008,36 @@ onMounted(async () => {
     const status = statusRes.data
     if (status.status === 'running') {
       trainingStatus.value = 'running'
+      saveFolder.value = status.save_folder
       currentEpoch.value = status.current_epoch
       currentStep.value = status.current_step
-      const [logsRes, lossRes] = await Promise.all([
+      const [logsRes, lossRes, recordsRes] = await Promise.all([
         axios.get('/api/train/logs'),
-        axios.get('/api/train/loss')
+        saveFolder.value ? axios.get(`/api/train/loss-file/${saveFolder.value}`) : Promise.resolve({ data: [] }),
+        saveFolder.value ? axios.get(`/api/train/records/${saveFolder.value}`) : Promise.resolve({ data: {} })
       ])
       logs.value = logsRes.data
       lossData.value = lossRes.data
+      if (recordsRes.data.params) {
+        const params = recordsRes.data.params
+        Object.assign(trainParams, {
+          base_model: params.base_model || '',
+          model_size: params.model_size || '2.9B',
+          train_data: params.train_data || '',
+          micro_bsz: params.micro_bsz || 1,
+          epoch_save: params.epoch_save || 1,
+          epoch_steps: params.epoch_steps || 1000,
+          ctx_len: params.ctx_len || 512,
+          epoch_count: params.epoch_count || 1,
+          lr_init: params.lr_init || 2e-5,
+          lr_final: params.lr_final || 2e-5
+        })
+        Object.assign(loraParams, {
+          r: params.lora_r || 32,
+          lora_alpha: params.lora_alpha || 32,
+          lora_dropout: params.lora_dropout || 0.01
+        })
+      }
       startPolling()
     }
   } catch (error) {
@@ -964,6 +1047,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  if (detailPollTimer) {
+    clearInterval(detailPollTimer)
+    detailPollTimer = null
+  }
   if (lossChartInstance) {
     lossChartInstance.dispose()
     lossChartInstance = null
@@ -978,6 +1065,20 @@ onUnmounted(() => {
 <style scoped>
 .train-tabs {
   margin-bottom: 20px;
+}
+
+.train-tabs .is-training {
+  color: #e6a23c;
+  font-weight: bold;
+}
+
+.train-tabs .is-loading {
+  animation: rotating 1s linear infinite;
+}
+
+@keyframes rotating {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .record-view {
