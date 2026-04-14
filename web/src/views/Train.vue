@@ -81,15 +81,15 @@
                   <div class="detail-progress">
                     <div class="progress-item">
                       <span class="progress-label">Epoch 进度</span>
-                      <el-progress class="progress-bar" :percentage="currentDetail.state ? Math.round((currentDetail.state.current_epoch / currentDetail.state.total_epochs) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
+                      <el-progress class="progress-bar" :percentage="currentDetail.state && currentDetail.params ? Math.round((((currentDetail.state.status === 'completed' ? currentDetail.params.epoch_count : currentDetail.state.current_epoch) / currentDetail.params.epoch_count)) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
                     </div>
                     <div class="progress-item">
                       <span class="progress-label">Step 进度</span>
-                      <el-progress class="progress-bar" :percentage="currentDetail.state && currentDetail.params ? Math.round((currentDetail.state.current_step / Math.floor(currentDetail.params.epoch_steps / currentDetail.params.micro_bsz)) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
+                      <el-progress class="progress-bar" :percentage="currentDetail.state && currentDetail.params ? Math.round(((currentDetail.state.status === 'completed' ? Math.floor(currentDetail.params.epoch_steps / currentDetail.params.micro_bsz) : currentDetail.state.current_step) / Math.floor(currentDetail.params.epoch_steps / currentDetail.params.micro_bsz)) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
                     </div>
                     <div class="progress-detail">
-                      <span>Epoch: {{ currentDetail.state?.current_epoch || 0 }} / {{ currentDetail.state?.total_epochs || 1 }}</span>
-                      <span>Step: {{ currentDetail.state?.current_step || 0 }} / {{ currentDetail.params ? Math.floor(currentDetail.params.epoch_steps / currentDetail.params.micro_bsz) : 1 }}</span>
+                      <span>Epoch: {{ currentDetail.state?.status === 'completed' ? currentDetail.params?.epoch_count : currentDetail.state?.current_epoch || 0 }} / {{ currentDetail.params?.epoch_count || 1 }}</span>
+                      <span>Step: {{ currentDetail.state?.status === 'completed' ? Math.floor(currentDetail.params?.epoch_steps / currentDetail.params?.micro_bsz) : currentDetail.state?.current_step || 0 }} / {{ currentDetail.params ? Math.floor(currentDetail.params.epoch_steps / currentDetail.params.micro_bsz) : 1 }}</span>
                     </div>
                     <div class="progress-metrics">
                       <span>loss: {{ currentDetail.state?.sum_loss?.toFixed(3) || 0 }}</span>
@@ -1083,7 +1083,6 @@ onUnmounted(() => {
 
 .record-view {
   background: #fff;
-  padding: 20px;
   border-radius: 8px;
 }
 
