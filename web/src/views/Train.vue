@@ -85,11 +85,11 @@
                     </div>
                     <div class="progress-item">
                       <span class="progress-label">Step 进度</span>
-                      <el-progress class="progress-bar" :percentage="currentDetail.state ? Math.round((currentDetail.state.current_step / currentDetail.state.total_steps) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
+                      <el-progress class="progress-bar" :percentage="currentDetail.state && currentDetail.params ? Math.round((currentDetail.state.current_step / Math.floor(currentDetail.params.epoch_steps / currentDetail.params.micro_bsz)) * 100) : 0" :stroke-width="12" :status="currentDetail.state?.status === 'completed' ? 'success' : undefined" />
                     </div>
                     <div class="progress-detail">
                       <span>Epoch: {{ currentDetail.state?.current_epoch || 0 }} / {{ currentDetail.state?.total_epochs || 1 }}</span>
-                      <span>Step: {{ currentDetail.state?.current_step || 0 }} / {{ currentDetail.state?.total_steps || 1 }}</span>
+                      <span>Step: {{ currentDetail.state?.current_step || 0 }} / {{ currentDetail.params ? Math.floor(currentDetail.params.epoch_steps / currentDetail.params.micro_bsz) : 1 }}</span>
                     </div>
                     <div class="progress-metrics">
                       <span>loss: {{ currentDetail.state?.sum_loss?.toFixed(3) || 0 }}</span>
