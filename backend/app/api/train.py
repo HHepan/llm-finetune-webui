@@ -257,6 +257,7 @@ async def get_status() -> Dict:
         "current_lr": train_state.get("current_lr", 0),
         "its_per_sec": train_state.get("its_per_sec", 0),
         "sum_loss": train_state.get("sum_loss", 0),
+        "save_folder": current_save_folder or "",
     }
 
 
@@ -270,6 +271,32 @@ async def get_logs() -> List[str]:
 @router.get("/loss")
 async def get_loss() -> List[Dict]:
     return train_state["loss_history"]
+
+
+@router.get("/loss-file/{folder_name}")
+async def get_loss_from_file(folder_name: str) -> List[Dict]:
+    """从文件读取损失数据"""
+    loss_file = os.path.join(CHECKPOINTS_DIR, folder_name, "loss_data.jsonl")
+    if not os.path.exists(loss_file):
+        return []
+    
+    loss_data = []
+    try:
+        with open(loss_file, 'r') as f:
+            for index, line in enumerate(f, 1):
+                if line.strip():
+                    try:
+                        data = json.loads(line)
+                        loss_data.append({
+                            "step": index,
+                            "loss": data.get("loss", 0)
+                        })
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    
+    return loss_data
 
 
 @router.post("/start")
