@@ -444,7 +444,6 @@ const saveParams = () => {
 const resetParams = () => {
   isLoadingParams.value = true
   Object.assign(inferParams, defaultParams)
-  isParamsSynced.value = false
   isLoadingParams.value = false
   ElMessage.success('已重置为默认参数')
 }
