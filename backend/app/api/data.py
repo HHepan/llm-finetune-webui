@@ -38,6 +38,15 @@ async def save_chat_data(req: ChatDataRequest) -> Dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/chat-data")
+async def update_chat_params(req: ChatDataRequest) -> Dict:
+    try:
+        result = file_service.save_chat_data(req.folder, req.model, req.params)
+        return {"message": "更新成功", "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/chat-data")
 async def delete_chat_data(folder: str = Query(...), model: str = Query(...)) -> Dict:
     try:
@@ -50,7 +59,7 @@ async def delete_chat_data(folder: str = Query(...), model: str = Query(...)) ->
 
 
 @router.get("/chat-models")
-async def get_chat_model_list() -> List[Dict[str, str]]:
+async def get_chat_model_list() -> List[Dict[str, Any]]:
     try:
         return file_service.get_chat_model_list()
     except Exception as e:

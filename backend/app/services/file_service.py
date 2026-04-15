@@ -284,21 +284,30 @@ def save_chat_data(folder: str, model: str, params: dict) -> dict:
 
     model_name_without_ext = model.replace('.pth', '')
     file_name = f"{model_name_without_ext}-data.json"
-
-    chat_data = {
-        'model': f"{folder}/{model}",
-        'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'params': params
-    }
-
     file_path = chat_data_dir / file_name
+
+    if file_path.exists():
+        with open(file_path, 'r', encoding='utf-8') as f:
+            old_data = json.load(f)
+        chat_data = {
+            'model': old_data['model'],
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'params': params
+        }
+    else:
+        chat_data = {
+            'model': f"{folder}/{model}",
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'params': params
+        }
+
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(chat_data, f, ensure_ascii=False, indent=2)
 
     return chat_data
 
 
-def get_chat_model_list() -> List[Dict[str, str]]:
+def get_chat_model_list() -> List[Dict[str, Any]]:
     models = []
     if not CHECKPOINT_DIR.exists():
         return models
@@ -317,7 +326,8 @@ def get_chat_model_list() -> List[Dict[str, str]]:
                         if 'model' in data:
                             models.append({
                                 'model': data['model'],
-                                'created_at': data.get('created_at', '')
+                                'created_at': data.get('created_at', ''),
+                                'params': data.get('params', {})
                             })
                 except (json.JSONDecodeError, IOError):
                     continue

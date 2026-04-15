@@ -12,6 +12,7 @@
                 placeholder="选择模型"
                 style="width: 320px;"
                 @focus="loadModels"
+                @change="onModelChange"
               >
                 <el-option
                   v-for="item in modelList"
@@ -101,24 +102,17 @@
         <el-card class="param-card">
           <template #header>
             <div class="card-header">
-              <span>推理参数</span>
+              <div class="card-header-title">
+                <span>推理参数</span>
+                <el-icon v-if="isSavingParams" class="syncing-icon"><Loading /></el-icon>
+                <el-icon v-else-if="isParamsSynced" class="synced-icon"><CircleCheck /></el-icon>
+              </div>
+              <el-button size="small" @click="resetParams">重置默认</el-button>
             </div>
           </template>
           <el-form :model="inferParams" label-width="100px" class="infer-form">
             <el-form-item label="选择的模型">
-              <el-select
-                v-model="inferParams.model"
-                placeholder="选择模型文件"
-                style="width: 100%"
-                @focus="loadModels"
-              >
-                <el-option
-                  v-for="model in modelList"
-                  :key="model"
-                  :label="model"
-                  :value="model"
-                />
-              </el-select>
+              <el-input v-model="inferParams.model" disabled style="width: 100%" />
             </el-form-item>
 
             <el-form-item label="max-tokens">
@@ -248,13 +242,6 @@
                 <span class="slider-value">{{ inferParams.alpha_decay.toFixed(3) }}</span>
               </div>
             </el-form-item>
-
-            <el-form-item>
-              <div style="display: flex; justify-content: center; width: 100%;">
-                <el-button type="primary" @click="saveParams">保存参数</el-button>
-                <el-button @click="resetParams">重置默认</el-button>
-              </div>
-            </el-form-item>
           </el-form>
         </el-card>
 
@@ -290,7 +277,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { User, ChatDotRound } from '@element-plus/icons-vue'
+import { User, ChatDotRound, Loading, CircleCheck } from '@element-plus/icons-vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 
@@ -341,6 +328,10 @@ const inferParams = reactive({
   alpha_decay: 0.996
 })
 
+const isParamsSynced = ref(true)
+const isSavingParams = ref(false)
+const isLoadingParams = ref(false)
+
 const defaultParams = {
   max_tokens: 2048,
   clean_rounds: 10,
@@ -357,8 +348,14 @@ const loadModels = async () => {
     const res = await axios.get('/api/data/chat-models')
     modelList.value = res.data
     if (modelList.value.length > 0) {
+      isLoadingParams.value = true
       selectedModel.value = modelList.value[0].model
       inferParams.model = modelList.value[0].model
+      if (modelList.value[0].params) {
+        Object.assign(inferParams, modelList.value[0].params)
+      }
+      isParamsSynced.value = true
+      isLoadingParams.value = false
     }
   } catch (error) {
     console.error('获取模型列表失败', error)
@@ -367,6 +364,19 @@ const loadModels = async () => {
       selectedModel.value = modelList.value[0].model
       inferParams.model = modelList.value[0].model
     }
+  }
+}
+
+const onModelChange = (value) => {
+  const item = modelList.value.find(i => i.model === value)
+  if (item) {
+    isLoadingParams.value = true
+    inferParams.model = value
+    if (item.params) {
+      Object.assign(inferParams, item.params)
+    }
+    isParamsSynced.value = true
+    isLoadingParams.value = false
   }
 }
 
@@ -432,9 +442,10 @@ const saveParams = () => {
 }
 
 const resetParams = () => {
+  isLoadingParams.value = true
   Object.assign(inferParams, defaultParams)
-  selectedModel.value = modelList.value[0] || ''
-  inferParams.model = selectedModel.value
+  isParamsSynced.value = false
+  isLoadingParams.value = false
   ElMessage.success('已重置为默认参数')
 }
 
@@ -691,6 +702,40 @@ watch(showPerplexity, (val) => {
   }
 })
 
+watch(() => inferParams, async () => {
+  if (!selectedModel.value || isParamsSynced.value === false || isLoadingParams.value) return
+
+  const parts = selectedModel.value.split('/')
+  if (parts.length < 2) return
+
+  const folder = parts[0]
+  const model = parts[1]
+
+  isSavingParams.value = true
+
+  try {
+    await axios.put('/api/data/chat-data', {
+      folder: folder,
+      model: model,
+      params: {
+        max_tokens: inferParams.max_tokens,
+        clean_rounds: inferParams.clean_rounds,
+        temperature: inferParams.temperature,
+        top_p: inferParams.top_p,
+        top_k: inferParams.top_k,
+        alpha_frequency: inferParams.alpha_frequency,
+        alpha_presence: inferParams.alpha_presence,
+        alpha_decay: inferParams.alpha_decay
+      }
+    })
+    isParamsSynced.value = true
+  } catch (error) {
+    console.error('保存参数失败', error)
+  } finally {
+    isSavingParams.value = false
+  }
+}, { deep: true })
+
 onMounted(() => {
   loadModels()
   loadParams()
@@ -885,6 +930,28 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.card-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.synced-icon {
+  color: #67c23a;
+  font-size: 18px;
+}
+
+.syncing-icon {
+  color: #e6a23c;
+  font-size: 18px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .empty-placeholder {
