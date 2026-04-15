@@ -1,9 +1,10 @@
 import json
 import random
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from app.core.config import DATA_DIR, BASE_DIR
+from app.core.config import DATA_DIR, BASE_DIR, CHECKPOINT_DIR
 
 
 class FileNotFoundError(Exception):
@@ -257,3 +258,80 @@ def merge_files_with_ratio(
         'total_lines': len(merged_rows),
         'original_lines': total_original_lines
     }
+
+
+def get_checkpoint_folder_list() -> List[str]:
+    if not CHECKPOINT_DIR.exists():
+        CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    folders = [f.name for f in CHECKPOINT_DIR.iterdir() if f.is_dir() and not f.name.startswith('.')]
+    return sorted(folders)
+
+
+def get_checkpoint_file_list(folder: str = None) -> List[str]:
+    if not folder:
+        folder = ''
+    target_dir = CHECKPOINT_DIR / folder if folder else CHECKPOINT_DIR
+    if not target_dir.exists():
+        target_dir.mkdir(parents=True, exist_ok=True)
+    files = [f.name for f in target_dir.iterdir() if f.suffix == '.pth' and not f.name.startswith('.')]
+    return sorted(files)
+
+
+def save_chat_data(folder: str, model: str, params: dict) -> dict:
+    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    if not chat_data_dir.exists():
+        chat_data_dir.mkdir(parents=True, exist_ok=True)
+
+    model_name_without_ext = model.replace('.pth', '')
+    file_name = f"{model_name_without_ext}-data.json"
+
+    chat_data = {
+        'model': f"{folder}/{model}",
+        'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'params': params
+    }
+
+    file_path = chat_data_dir / file_name
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(chat_data, f, ensure_ascii=False, indent=2)
+
+    return chat_data
+
+
+def get_chat_model_list() -> List[Dict[str, str]]:
+    models = []
+    if not CHECKPOINT_DIR.exists():
+        return models
+
+    for folder in CHECKPOINT_DIR.iterdir():
+        if not folder.is_dir() or folder.name.startswith('.'):
+            continue
+        chat_data_dir = folder / "chat-data"
+        if not chat_data_dir.exists():
+            continue
+        for json_file in chat_data_dir.iterdir():
+            if json_file.suffix == '.json' and not json_file.name.startswith('.'):
+                try:
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if 'model' in data:
+                            models.append({
+                                'model': data['model'],
+                                'created_at': data.get('created_at', '')
+                            })
+                except (json.JSONDecodeError, IOError):
+                    continue
+    models.sort(key=lambda x: x['created_at'], reverse=True)
+    return models
+
+
+def delete_chat_data(folder: str, model_name: str) -> bool:
+    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    file_name = f"{model_name}-data.json"
+    file_path = chat_data_dir / file_name
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"文件 {file_name} 不存在")
+
+    file_path.unlink()
+    return True

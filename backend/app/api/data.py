@@ -1,10 +1,60 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel
 
 from app.services import file_service
 
 router = APIRouter(prefix="/api/data", tags=["data"])
+
+
+@router.get("/checkpoint-folders")
+async def get_checkpoint_folder_list() -> List[str]:
+    try:
+        return file_service.get_checkpoint_folder_list()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/checkpoint-files")
+async def get_checkpoint_file_list(folder: str = Query(default="")) -> List[str]:
+    try:
+        return file_service.get_checkpoint_file_list(folder)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ChatDataRequest(BaseModel):
+    folder: str
+    model: str
+    params: Dict[str, Any]
+
+
+@router.post("/chat-data")
+async def save_chat_data(req: ChatDataRequest) -> Dict:
+    try:
+        result = file_service.save_chat_data(req.folder, req.model, req.params)
+        return {"message": "保存成功", "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/chat-data")
+async def delete_chat_data(folder: str = Query(...), model: str = Query(...)) -> Dict:
+    try:
+        file_service.delete_chat_data(folder, model)
+        return {"message": "删除成功"}
+    except file_service.FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/chat-models")
+async def get_chat_model_list() -> List[Dict[str, str]]:
+    try:
+        return file_service.get_chat_model_list()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/base-models")

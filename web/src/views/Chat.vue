@@ -6,25 +6,47 @@
         <el-card class="chat-card">
           <template #header>
             <div class="chat-header">
-              <span>对话测试</span>
-              <div class="header-actions">
-                <el-select
-                  v-model="selectedModel"
-                  placeholder="选择模型"
-                  style="width: 200px; margin-right: 10px;"
-                  @focus="loadModels"
+              <span>当前对话</span>
+              <el-select
+                v-model="selectedModel"
+                placeholder="选择模型"
+                style="width: 320px;"
+                @focus="loadModels"
+              >
+                <el-option
+                  v-for="item in modelList"
+                  :key="item.model"
+                  :label="item.model"
+                  :value="item.model"
                 >
-                  <el-option
-                    v-for="model in modelList"
-                    :key="model"
-                    :label="model"
-                    :value="model"
-                  />
-                </el-select>
-                <el-button type="primary" @click="clearConversation">开始新对话</el-button>
-              </div>
+                  <div class="model-option">
+                    <span class="model-option-label">{{ item.model }}</span>
+                    <el-button
+                      type="danger"
+                      size="small"
+                      class="model-option-delete"
+                      @click.stop="confirmDeleteChat(item)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </el-option>
+              </el-select>
+              <el-button type="success" @click="handleNewChat">新建对话</el-button>
             </div>
           </template>
+
+          <div v-if="showNewChatPanel" class="new-chat-panel">
+            <span class="new-chat-panel-label">选择模型</span>
+            <el-select v-model="newChatFolder" placeholder="文件夹" style="width: 180px;" @change="onFolderChange">
+              <el-option v-for="folder in folderList" :key="folder" :label="folder" :value="folder" />
+            </el-select>
+            <el-select v-model="newChatModel" placeholder="模型文件" style="width: 200px;">
+              <el-option v-for="model in modelFileList" :key="model" :label="model" :value="model" />
+            </el-select>
+            <el-button @click="cancelNewChat">取消</el-button>
+            <el-button type="success" @click="confirmNewChat">确认创建</el-button>
+          </div>
 
           <!-- 对话消息区域 -->
           <div class="chat-messages" ref="messagesRef">
@@ -267,7 +289,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { User, ChatDotRound } from '@element-plus/icons-vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
@@ -282,6 +304,30 @@ const showPerplexity = ref(true)
 const perplexityChartRef = ref(null)
 let perplexityChartInstance = null
 const perplexityData = ref([])
+
+const showNewChatPanel = ref(false)
+const newChatFolder = ref('')
+const newChatModel = ref('')
+const folderList = ref([])
+const modelFileList = ref([])
+
+const loadCheckpointFolders = async () => {
+  try {
+    const res = await axios.get('/api/data/checkpoint-folders')
+    folderList.value = res.data
+  } catch (error) {
+    console.error('获取文件夹列表失败', error)
+  }
+}
+
+const loadCheckpointFiles = async (folder) => {
+  try {
+    const res = await axios.get('/api/data/checkpoint-files', { params: { folder } })
+    modelFileList.value = res.data
+  } catch (error) {
+    console.error('获取模型文件列表失败', error)
+  }
+}
 
 const inferParams = reactive({
   model: '',
@@ -308,19 +354,52 @@ const defaultParams = {
 
 const loadModels = async () => {
   try {
-    const res = await axios.get('/api/chat/models')
+    const res = await axios.get('/api/data/chat-models')
     modelList.value = res.data
-    if (modelList.value.length > 0 && !selectedModel.value) {
-      selectedModel.value = modelList.value[0]
-      inferParams.model = modelList.value[0]
+    if (modelList.value.length > 0) {
+      selectedModel.value = modelList.value[0].model
+      inferParams.model = modelList.value[0].model
     }
   } catch (error) {
     console.error('获取模型列表失败', error)
     modelList.value = mockModelList
-    if (modelList.value.length > 0 && !selectedModel.value) {
-      selectedModel.value = modelList.value[0]
-      inferParams.model = modelList.value[0]
+    if (modelList.value.length > 0) {
+      selectedModel.value = modelList.value[0].model
+      inferParams.model = modelList.value[0].model
     }
+  }
+}
+
+const confirmDeleteChat = async (item) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除对话 "${item.model}" 吗？此操作不可恢复！`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await deleteChat(item)
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.response?.data?.detail || '删除失败')
+    }
+  }
+}
+
+const deleteChat = async (item) => {
+  try {
+    const modelPath = item.model
+    const parts = modelPath.split('/')
+    const folder = parts[0]
+    const modelFile = parts[1]
+    const modelName = modelFile.replace('.pth', '')
+    await axios.delete(`/api/data/chat-data`, {
+      params: { folder: folder, model: modelName }
+    })
+    ElMessage.success('对话已删除')
+    await loadModels()
+  } catch (error) {
+    console.error('删除对话失败', error)
+    ElMessage.error(error.response?.data?.detail || '删除失败')
   }
 }
 
@@ -367,6 +446,66 @@ const clearConversation = () => {
   messages.value = []
   perplexityData.value = []
   updatePerplexityChart()
+}
+
+const handleNewChat = async () => {
+  showNewChatPanel.value = !showNewChatPanel.value
+  if (showNewChatPanel.value) {
+    newChatFolder.value = ''
+    newChatModel.value = ''
+    modelFileList.value = []
+    if (folderList.value.length === 0) {
+      await loadCheckpointFolders()
+    }
+  }
+}
+
+const saveChatData = async (folder, model, params) => {
+  try {
+    await axios.post('/api/data/chat-data', {
+      folder: folder,
+      model: model,
+      params: params
+    })
+  } catch (error) {
+    console.error('保存对话数据失败', error)
+  }
+}
+
+const confirmNewChat = async () => {
+  if (!newChatFolder.value || !newChatModel.value) {
+    ElMessage.warning('请选择文件夹和模型文件')
+    return
+  }
+  const params = {
+    max_tokens: inferParams.max_tokens,
+    clean_rounds: inferParams.clean_rounds,
+    temperature: inferParams.temperature,
+    top_p: inferParams.top_p,
+    top_k: inferParams.top_k,
+    alpha_frequency: inferParams.alpha_frequency,
+    alpha_presence: inferParams.alpha_presence,
+    alpha_decay: inferParams.alpha_decay
+  }
+  await saveChatData(newChatFolder.value, newChatModel.value, params)
+  selectedModel.value = newChatModel.value
+  inferParams.model = newChatModel.value
+  messages.value = []
+  perplexityData.value = []
+  updatePerplexityChart()
+  showNewChatPanel.value = false
+  ElMessage.success('新对话已创建')
+}
+
+const cancelNewChat = () => {
+  showNewChatPanel.value = false
+}
+
+const onFolderChange = async (val) => {
+  newChatModel.value = ''
+  if (val) {
+    await loadCheckpointFiles(val)
+  }
 }
 
 const scrollToBottom = () => {
@@ -555,6 +694,7 @@ watch(showPerplexity, (val) => {
 onMounted(() => {
   loadModels()
   loadParams()
+  loadCheckpointFolders()
 })
 
 onUnmounted(() => {
@@ -590,6 +730,7 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .chat-card :deep(.el-card__body) {
@@ -601,13 +742,50 @@ onUnmounted(() => {
 
 .chat-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  width: 100%;
 }
 
-.header-actions {
+.model-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-right: 5px;
+}
+
+.model-option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-option-delete {
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+.new-chat-panel {
+  position: absolute;
+  top: 56px;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 10px 15px;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.new-chat-panel-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #606266;
+  white-space: nowrap;
 }
 
 .chat-messages {
