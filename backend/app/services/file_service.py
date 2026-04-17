@@ -292,14 +292,57 @@ def save_chat_data(folder: str, model: str, params: dict) -> dict:
         chat_data = {
             'model': old_data['model'],
             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'params': params
+            'params': params,
+            'dialogue-content': old_data.get('dialogue-content', [])
         }
     else:
         chat_data = {
             'model': f"{folder}/{model}",
             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'params': params
+            'params': params,
+            'dialogue-content': []
         }
+
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(chat_data, f, ensure_ascii=False, indent=2)
+
+    return chat_data
+
+
+def get_chat_data(folder: str, model: str) -> dict:
+    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    if not chat_data_dir.exists():
+        raise FileNotFoundError(f"Chat data directory not found: {folder}")
+
+    model_name_without_ext = model.replace('.pth', '')
+    file_name = f"{model_name_without_ext}-data.json"
+    file_path = chat_data_dir / file_name
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"Chat data file not found: {file_name}")
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def update_dialogue_content(folder: str, model: str, dialogue_content: list) -> dict:
+    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    if not chat_data_dir.exists():
+        chat_data_dir.mkdir(parents=True, exist_ok=True)
+
+    model_name_without_ext = model.replace('.pth', '')
+    file_name = f"{model_name_without_ext}-data.json"
+    file_path = chat_data_dir / file_name
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"Chat data file not found: {file_name}")
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        chat_data = json.load(f)
+
+    existing_dialogue = chat_data.get('dialogue-content', [])
+    existing_dialogue.extend(dialogue_content)
+    chat_data['dialogue-content'] = existing_dialogue
 
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(chat_data, f, ensure_ascii=False, indent=2)
