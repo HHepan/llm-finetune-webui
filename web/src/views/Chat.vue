@@ -9,7 +9,7 @@
               <span>当前对话</span>
               <el-select
                 v-model="selectedModel"
-                placeholder="选择模型"
+                placeholder="暂无对话，请新建"
                 style="width: 320px;"
                 @focus="loadModels"
                 @change="onModelChange"
@@ -93,7 +93,7 @@
               type="textarea"
               :rows="5"
               placeholder="请输入您的问题..."
-              @keydown.enter="sendMessage"
+              @keydown.enter="handleEnterKey"
               :disabled="isModelLoading"
             />
             <el-button
@@ -384,14 +384,17 @@ const loadModels = async () => {
       isParamsSynced.value = true
       isLoadingParams.value = false
       await onModelChange(modelList.value[0].model)
+    } else {
+      selectedModel.value = ''
+      inferParams.model = ''
+      isModelLoaded.value = false
     }
   } catch (error) {
     console.error('获取模型列表失败', error)
-    modelList.value = mockModelList
-    if (modelList.value.length > 0) {
-      selectedModel.value = modelList.value[0].model
-      inferParams.model = modelList.value[0].model
-    }
+    modelList.value = []
+    selectedModel.value = ''
+    inferParams.model = ''
+    isModelLoaded.value = false
   }
 }
 
@@ -551,6 +554,14 @@ const onFolderChange = async (val) => {
   }
 }
 
+const handleEnterKey = (e) => {
+  if (e.shiftKey) {
+    return
+  }
+  e.preventDefault()
+  sendMessage()
+}
+
 const sendMessage = async () => {
   if (!userInput.value.trim() || !selectedModel.value) {
     ElMessage.warning('请选择模型并输入内容')
@@ -578,6 +589,7 @@ const sendMessage = async () => {
         const lastMsg = messages.value[messages.value.length - 1]
         if (lastMsg.role === 'assistant') {
           lastMsg.content = content
+          scrollToBottom()
         }
       } catch (e) {
       }
@@ -947,6 +959,7 @@ onUnmounted(() => {
 
 .chat-input-area :deep(.el-textarea) {
   flex: 1;
+  font-size: 16px;
 }
 
 .send-btn {

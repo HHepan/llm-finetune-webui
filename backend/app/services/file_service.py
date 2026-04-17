@@ -340,9 +340,7 @@ def update_dialogue_content(folder: str, model: str, dialogue_content: list) -> 
     with open(file_path, 'r', encoding='utf-8') as f:
         chat_data = json.load(f)
 
-    existing_dialogue = chat_data.get('dialogue-content', [])
-    existing_dialogue.extend(dialogue_content)
-    chat_data['dialogue-content'] = existing_dialogue
+    chat_data['dialogue-content'] = dialogue_content
 
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(chat_data, f, ensure_ascii=False, indent=2)
