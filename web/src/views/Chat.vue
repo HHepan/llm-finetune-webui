@@ -522,22 +522,14 @@ const confirmNewChat = async () => {
     ElMessage.warning('请选择文件夹和模型文件')
     return
   }
-  const params = {
-    max_tokens: inferParams.max_tokens,
-    clean_rounds: inferParams.clean_rounds,
-    temperature: inferParams.temperature,
-    top_p: inferParams.top_p,
-    top_k: inferParams.top_k,
-    alpha_frequency: inferParams.alpha_frequency,
-    alpha_presence: inferParams.alpha_presence,
-    alpha_decay: inferParams.alpha_decay
-  }
+  const params = defaultParams
   await saveChatData(newChatFolder.value, newChatModel.value, params)
   const fullModelPath = newChatFolder.value + '/' + newChatModel.value
   selectedModel.value = fullModelPath
   inferParams.model = fullModelPath
   messages.value = []
   await onModelChange(fullModelPath)
+  Object.assign(inferParams, defaultParams)
   showNewChatPanel.value = false
   ElMessage.success('新对话已创建')
 }
