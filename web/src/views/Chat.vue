@@ -13,6 +13,7 @@
                 style="width: 320px;"
                 @focus="loadModels"
                 @change="onModelChange"
+                :disabled="isModelLoading"
               >
                 <el-option
                   v-for="item in modelList"
@@ -33,7 +34,19 @@
                   </div>
                 </el-option>
               </el-select>
-              <el-button type="success" @click="handleNewChat">新建对话</el-button>
+              <el-button type="success" @click="handleNewChat" :disabled="isModelLoading">新建对话</el-button>
+              <div v-if="isModelLoading" class="model-status loading">
+                <el-icon class="loading-icon"><Loading /></el-icon>
+                <span>正在加载模型</span>
+              </div>
+              <div v-else-if="modelLoadError" class="model-status error">
+                <span>{{ modelLoadError }}</span>
+                <el-button type="danger" size="small" @click="onModelChange(selectedModel)">重试</el-button>
+              </div>
+              <div v-else-if="isModelLoaded" class="model-status success">
+                <el-icon><CircleCheck /></el-icon>
+                <span>模型已就绪</span>
+              </div>
             </div>
           </template>
 
@@ -78,19 +91,21 @@
             <el-input
               v-model="userInput"
               type="textarea"
-              :rows="3"
+              :rows="5"
               placeholder="请输入您的问题..."
-              :disabled="isStreaming"
-              @keydown.enter.ctrl="sendMessage"
+              @keydown.enter="sendMessage"
+              :disabled="isModelLoading"
             />
             <el-button
               type="primary"
-              :loading="isStreaming"
-              :disabled="!userInput.trim() || !selectedModel"
+              :disabled="!userInput.trim() || !selectedModel || isModelLoading"
               @click="sendMessage"
               class="send-btn"
             >
-              {{ isStreaming ? '生成中...' : '发送' }}
+              <div class="btn-text">
+                <span>发送</span>
+                <span class="btn-sub">(Enter)</span>
+              </div>
             </el-button>
           </div>
         </el-card>
@@ -287,6 +302,18 @@ const messages = ref([])
 const userInput = ref('')
 const isStreaming = ref(false)
 const messagesRef = ref(null)
+const isModelLoading = ref(false)
+const isModelLoaded = ref(false)
+const modelLoadError = ref('')
+
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (messagesRef.value) {
+      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    }
+  })
+}
+
 const showPerplexity = ref(true)
 const perplexityChartRef = ref(null)
 let perplexityChartInstance = null
@@ -356,6 +383,7 @@ const loadModels = async () => {
       }
       isParamsSynced.value = true
       isLoadingParams.value = false
+      await onModelChange(modelList.value[0].model)
     }
   } catch (error) {
     console.error('获取模型列表失败', error)
@@ -367,7 +395,7 @@ const loadModels = async () => {
   }
 }
 
-const onModelChange = (value) => {
+const onModelChange = async (value) => {
   const item = modelList.value.find(i => i.model === value)
   if (item) {
     isLoadingParams.value = true
@@ -377,6 +405,35 @@ const onModelChange = (value) => {
     }
     isParamsSynced.value = true
     isLoadingParams.value = false
+  }
+
+  isModelLoading.value = true
+  isModelLoaded.value = false
+  modelLoadError.value = ''
+
+  try {
+    await axios.post('/api/chat/preload-model', null, { params: { model: value } })
+    isModelLoaded.value = true
+  } catch (error) {
+    modelLoadError.value = error.response?.data?.detail || '模型加载失败'
+    isModelLoaded.value = false
+  } finally {
+    isModelLoading.value = false
+  }
+
+  const parts = value.split('/')
+  if (parts.length >= 2) {
+    const folder = parts[0]
+    const modelName = parts[1].replace('.pth', '')
+    try {
+      const res = await axios.get('/api/data/chat-data', {
+        params: { folder, model: modelName }
+      })
+      messages.value = res.data['dialogue-content'] || []
+      scrollToBottom()
+    } catch (error) {
+      messages.value = []
+    }
   }
 }
 
@@ -413,20 +470,6 @@ const deleteChat = async (item) => {
   }
 }
 
-const mockModelList = [
-  'checkpoint-1000.pth',
-  'checkpoint-2000.pth',
-  'checkpoint-3000.pth',
-  'lora_model.pth'
-]
-
-const mockResponses = [
-  '您好！我是基于大语言模型的智能助手。我可以帮您回答各种问题、提供信息、进行对话交流等。有什么我可以帮助您的吗？',
-  '根据您的问题，我来详细解释一下。这个概念涉及到多个方面：首先，我们需要理解基本原理；其次，要掌握关键的技术要点；最后，还需要大量的实践操作。',
-  '好的，让我来回答您的问题。这个问题的答案取决于多个因素，包括具体的应用场景、实际需求以及约束条件等。',
-  '感谢您的提问！关于您提到的内容，我可以从以下几个角度来分析：第一，从技术层面；第二，从应用层面；第三，从发展趋势来看。'
-]
-
 const loadParams = () => {
   const saved = localStorage.getItem('inferParams')
   if (saved) {
@@ -446,16 +489,6 @@ const resetParams = () => {
   Object.assign(inferParams, defaultParams)
   isLoadingParams.value = false
   ElMessage.success('已重置为默认参数')
-}
-
-const formatMessage = (content) => {
-  return content.replace(/\n/g, '<br>')
-}
-
-const clearConversation = () => {
-  messages.value = []
-  perplexityData.value = []
-  updatePerplexityChart()
 }
 
 const handleNewChat = async () => {
@@ -498,11 +531,11 @@ const confirmNewChat = async () => {
     alpha_decay: inferParams.alpha_decay
   }
   await saveChatData(newChatFolder.value, newChatModel.value, params)
-  selectedModel.value = newChatModel.value
-  inferParams.model = newChatModel.value
+  const fullModelPath = newChatFolder.value + '/' + newChatModel.value
+  selectedModel.value = fullModelPath
+  inferParams.model = fullModelPath
   messages.value = []
-  perplexityData.value = []
-  updatePerplexityChart()
+  await onModelChange(fullModelPath)
   showNewChatPanel.value = false
   ElMessage.success('新对话已创建')
 }
@@ -518,14 +551,6 @@ const onFolderChange = async (val) => {
   }
 }
 
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (messagesRef.value) {
-      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
-    }
-  })
-}
-
 const sendMessage = async () => {
   if (!userInput.value.trim() || !selectedModel.value) {
     ElMessage.warning('请选择模型并输入内容')
@@ -533,20 +558,39 @@ const sendMessage = async () => {
   }
 
   const userMessage = userInput.value.trim()
-  messages.value.push({ role: 'user', content: userMessage })
-
-  const assistantMessage = { role: 'assistant', content: '', isStreaming: true }
-  messages.value.push(assistantMessage)
-
   userInput.value = ''
-  isStreaming.value = true
+
+  messages.value.push({ role: 'user', content: userMessage })
+  scrollToBottom()
+  messages.value.push({ role: 'assistant', content: '', isStreaming: true })
   scrollToBottom()
 
+  const parts = selectedModel.value.split('/')
+  const folder = parts[0]
+
+  let pollInterval = null
+
+  const startPolling = () => {
+    pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/data/temp-txt', { params: { folder } })
+        const content = res.data.content
+        const lastMsg = messages.value[messages.value.length - 1]
+        if (lastMsg.role === 'assistant') {
+          lastMsg.content = content
+        }
+      } catch (e) {
+      }
+    }, 250)
+  }
+
+  startPolling()
+
   try {
-    const response = await axios.post('/api/chat/chat', {
+    await axios.post('/api/chat/chat', {
       model: selectedModel.value,
       message: userMessage,
-      messages: messages.value.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
+      messages: messages.value.slice(0, -2),
       params: {
         max_tokens: inferParams.max_tokens,
         temperature: inferParams.temperature,
@@ -556,82 +600,30 @@ const sendMessage = async () => {
         alpha_presence: inferParams.alpha_presence,
         alpha_decay: inferParams.alpha_decay
       }
-    }, {
-      responseType: 'text',
-      onDownloadProgress: (progressEvent) => {
-        const text = new TextDecoder().decode(progressEvent.target.response)
-        const lines = text.split('\n').filter(line => line.startsWith('data: '))
-        const lastLine = lines[lines.length - 1]
-        if (lastLine) {
-          const data = lastLine.replace('data: ', '')
-          if (data !== '[DONE]') {
-            try {
-              const parsed = JSON.parse(data)
-              assistantMessage.content += parsed.content || ''
+    }, { responseType: 'text' })
 
-              if (parsed.perplexity) {
-                perplexityData.value.push(parsed.perplexity)
-                updatePerplexityChart()
-              }
-            } catch (e) {
-              assistantMessage.content += data
-            }
-          } else {
-            assistantMessage.isStreaming = false
-            isStreaming.value = false
-          }
-        }
-        scrollToBottom()
-      }
-    })
-  } catch (error) {
-    console.error('请求失败，使用模拟响应', error)
-    assistantMessage.content = ''
-    assistantMessage.isStreaming = true
-
-    const randomResponse = mockResponses[Math.floor(Math.random() * mockResponses.length)]
-    let currentIndex = 0
-    const chunkSize = 3
-    let perplexityIndex = 0
-
-    const simulateResponse = () => {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          if (currentIndex < randomResponse.length) {
-            const end = Math.min(currentIndex + chunkSize, randomResponse.length)
-            const chunk = randomResponse.slice(currentIndex, end)
-            assistantMessage.content += chunk
-            currentIndex = end
-
-            const ecgWave = (i) => {
-              const t = (i % 20) / 20
-              if (t < 0.1) return 1 + Math.sin(t * Math.PI * 10) * 0.3
-              if (t < 0.15) return 0.3 + (t - 0.1) * 10
-              if (t < 0.2) return 1.3 - (t - 0.15) * 20
-              if (t < 0.25) return 0.3 + (t - 0.2) * 10
-              if (t < 0.35) return 0.8 + Math.sin((t - 0.25) * Math.PI * 10) * 0.2
-              if (t < 0.4) return 1 - (t - 0.35) * 10
-              return 0.5 + Math.sin(t * Math.PI * 2) * 0.1
-            }
-            const basePerplexity = ecgWave(perplexityIndex) * 8 + Math.random() * 1.5
-            perplexityData.value.push(basePerplexity)
-            perplexityIndex++
-            updatePerplexityChart()
-            scrollToBottom()
-
-            resolve(simulateResponse())
-          } else {
-            assistantMessage.isStreaming = false
-            isStreaming.value = false
-            scrollToBottom()
-            resolve()
-          }
-        }, 30)
-      })
+    if (pollInterval) {
+      clearInterval(pollInterval)
     }
 
-    await simulateResponse()
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (lastMsg.role === 'assistant') {
+      lastMsg.isStreaming = false
+    }
+
+    ElMessage.success('消息已发送')
+  } catch (error) {
+    if (pollInterval) {
+      clearInterval(pollInterval)
+    }
+    console.error('发送消息失败', error)
+    ElMessage.error('发送失败')
   }
+}
+
+const formatMessage = (content) => {
+  if (!content) return ''
+  return content.replace(/\n/g, '<br>')
 }
 
 const updatePerplexityChart = () => {
@@ -727,6 +719,20 @@ watch(() => inferParams, async () => {
         alpha_decay: inferParams.alpha_decay
       }
     })
+
+    await axios.put('/api/chat/update-params', {
+      params: {
+        max_tokens: inferParams.max_tokens,
+        clean_rounds: inferParams.clean_rounds,
+        temperature: inferParams.temperature,
+        top_p: inferParams.top_p,
+        top_k: inferParams.top_k,
+        alpha_frequency: inferParams.alpha_frequency,
+        alpha_presence: inferParams.alpha_presence,
+        alpha_decay: inferParams.alpha_decay
+      }
+    })
+
     isParamsSynced.value = true
   } catch (error) {
     console.error('保存参数失败', error)
@@ -757,7 +763,7 @@ onUnmounted(() => {
 }
 
 .left-panel {
-  flex: 1;
+  flex: 2;
   display: flex;
   flex-direction: column;
 }
@@ -789,6 +795,31 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   width: 100%;
+}
+
+.model-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  padding: 5px 10px;
+  border-radius: 4px;
+}
+
+.model-status.loading {
+  color: #e6a23c;
+}
+
+.model-status.error {
+  color: #f56c6c;
+}
+
+.model-status.success {
+  color: #67c23a;
+}
+
+.model-status .loading-icon {
+  animation: spin 1s linear infinite;
 }
 
 .model-option {
@@ -883,6 +914,7 @@ onUnmounted(() => {
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   line-height: 1.6;
   word-wrap: break-word;
+  text-align: left;
 }
 
 .message-item.user .message-text {
@@ -919,6 +951,18 @@ onUnmounted(() => {
 
 .send-btn {
   height: auto;
+}
+
+.send-btn .btn-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.3;
+}
+
+.send-btn .btn-sub {
+  font-size: 11px;
+  opacity: 0.8;
 }
 
 .param-card {

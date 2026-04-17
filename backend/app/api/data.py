@@ -1,8 +1,10 @@
 from typing import List, Dict, Optional, Any
 from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel
+from pathlib import Path
 
 from app.services import file_service
+from app.core.config import CHECKPOINT_DIR
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -26,7 +28,8 @@ async def get_checkpoint_file_list(folder: str = Query(default="")) -> List[str]
 class ChatDataRequest(BaseModel):
     folder: str
     model: str
-    params: Dict[str, Any]
+    params: Dict[str, Any] = {}
+    dialogue_content: List[Dict[str, str]] = []
 
 
 @router.post("/chat-data")
@@ -54,6 +57,39 @@ async def delete_chat_data(folder: str = Query(...), model: str = Query(...)) ->
         return {"message": "删除成功"}
     except file_service.FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/chat-data")
+async def get_chat_data_endpoint(folder: str = Query(...), model: str = Query(...)) -> Dict:
+    try:
+        return file_service.get_chat_data(folder, model)
+    except file_service.FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/chat-data/dialogue")
+async def update_dialogue_content(req: ChatDataRequest) -> Dict:
+    try:
+        result = file_service.update_dialogue_content(req.folder, req.model, req.dialogue_content or [])
+        return {"message": "对话内容已更新", "data": result}
+    except file_service.FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/temp-txt")
+async def get_temp_txt(folder: str = Query(...)) -> Dict:
+    try:
+        temp_file_path = CHECKPOINT_DIR / folder / "chat-data" / "temp.txt"
+        if temp_file_path.exists():
+            with open(temp_file_path, 'r', encoding='utf-8') as f:
+                return {"content": f.read()}
+        return {"content": ""}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
