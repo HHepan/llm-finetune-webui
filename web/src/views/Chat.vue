@@ -34,6 +34,7 @@
                 </el-option>
               </el-select>
               <el-button type="success" @click="handleNewChat" :disabled="isModelLoading">新建对话</el-button>
+              <el-button type="warning" @click="clearHistory" :disabled="!selectedModel">清空历史</el-button>
               <div v-if="isModelLoading" class="model-status loading">
                 <el-icon class="loading-icon"><Loading /></el-icon>
                 <span>正在加载模型</span>
@@ -524,6 +525,7 @@ const confirmNewChat = async () => {
   }
   const params = defaultParams
   await saveChatData(newChatFolder.value, newChatModel.value, params)
+  await loadModels()
   const fullModelPath = newChatFolder.value + '/' + newChatModel.value
   selectedModel.value = fullModelPath
   inferParams.model = fullModelPath
@@ -536,6 +538,28 @@ const confirmNewChat = async () => {
 
 const cancelNewChat = () => {
   showNewChatPanel.value = false
+}
+
+const clearHistory = async () => {
+  if (!selectedModel.value) {
+    ElMessage.warning('请先选择一个对话')
+    return
+  }
+  try {
+    const parts = selectedModel.value.split('/')
+    const folder = parts[0]
+    const modelName = parts[1].replace('.pth', '')
+    await axios.put('/api/data/chat-data/dialogue', {
+      folder: folder,
+      model: modelName,
+      dialogue_content: []
+    })
+    messages.value = []
+    ElMessage.success('历史记录已清空')
+  } catch (error) {
+    console.error('清空历史记录失败', error)
+    ElMessage.error('清空失败')
+  }
 }
 
 const onFolderChange = async (val) => {
