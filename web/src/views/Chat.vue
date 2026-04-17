@@ -605,14 +605,31 @@ const sendMessage = async () => {
       }
     }, { responseType: 'text' })
 
-    if (pollInterval) {
-      clearInterval(pollInterval)
-    }
-
-    const lastMsg = messages.value[messages.value.length - 1]
-    if (lastMsg.role === 'assistant') {
-      lastMsg.isStreaming = false
-    }
+    let pollCount = 0
+    const maxExtraPolls = 8
+    const extraPollInterval = setInterval(async () => {
+      pollCount++
+      try {
+        const res = await axios.get('/api/data/temp-txt', { params: { folder } })
+        const content = res.data.content
+        const lastMsg = messages.value[messages.value.length - 1]
+        if (lastMsg.role === 'assistant') {
+          lastMsg.content = content
+          scrollToBottom()
+        }
+      } catch (e) {
+      }
+      if (pollCount >= maxExtraPolls) {
+        clearInterval(extraPollInterval)
+        if (pollInterval) {
+          clearInterval(pollInterval)
+        }
+        const lastMsg = messages.value[messages.value.length - 1]
+        if (lastMsg.role === 'assistant') {
+          lastMsg.isStreaming = false
+        }
+      }
+    }, 150)
 
     ElMessage.success('消息已发送')
   } catch (error) {
