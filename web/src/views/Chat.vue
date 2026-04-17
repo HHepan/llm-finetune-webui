@@ -11,7 +11,6 @@
                 v-model="selectedModel"
                 placeholder="暂无对话，请新建"
                 style="width: 320px;"
-                @focus="loadModels"
                 @change="onModelChange"
                 :disabled="isModelLoading"
               >
