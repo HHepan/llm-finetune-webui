@@ -11,7 +11,6 @@
                 v-model="selectedModel"
                 placeholder="暂无对话，请新建"
                 style="width: 320px;"
-                @focus="loadModels"
                 @change="onModelChange"
                 :disabled="isModelLoading"
               >
@@ -35,6 +34,7 @@
                 </el-option>
               </el-select>
               <el-button type="success" @click="handleNewChat" :disabled="isModelLoading">新建对话</el-button>
+              <el-button type="warning" @click="clearHistory" :disabled="!selectedModel">清空历史</el-button>
               <div v-if="isModelLoading" class="model-status loading">
                 <el-icon class="loading-icon"><Loading /></el-icon>
                 <span>正在加载模型</span>
@@ -523,28 +523,43 @@ const confirmNewChat = async () => {
     ElMessage.warning('请选择文件夹和模型文件')
     return
   }
-  const params = {
-    max_tokens: inferParams.max_tokens,
-    clean_rounds: inferParams.clean_rounds,
-    temperature: inferParams.temperature,
-    top_p: inferParams.top_p,
-    top_k: inferParams.top_k,
-    alpha_frequency: inferParams.alpha_frequency,
-    alpha_presence: inferParams.alpha_presence,
-    alpha_decay: inferParams.alpha_decay
-  }
+  const params = defaultParams
   await saveChatData(newChatFolder.value, newChatModel.value, params)
+  await loadModels()
   const fullModelPath = newChatFolder.value + '/' + newChatModel.value
   selectedModel.value = fullModelPath
   inferParams.model = fullModelPath
   messages.value = []
   await onModelChange(fullModelPath)
+  Object.assign(inferParams, defaultParams)
   showNewChatPanel.value = false
   ElMessage.success('新对话已创建')
 }
 
 const cancelNewChat = () => {
   showNewChatPanel.value = false
+}
+
+const clearHistory = async () => {
+  if (!selectedModel.value) {
+    ElMessage.warning('请先选择一个对话')
+    return
+  }
+  try {
+    const parts = selectedModel.value.split('/')
+    const folder = parts[0]
+    const modelName = parts[1].replace('.pth', '')
+    await axios.put('/api/data/chat-data/dialogue', {
+      folder: folder,
+      model: modelName,
+      dialogue_content: []
+    })
+    messages.value = []
+    ElMessage.success('历史记录已清空')
+  } catch (error) {
+    console.error('清空历史记录失败', error)
+    ElMessage.error('清空失败')
+  }
 }
 
 const onFolderChange = async (val) => {
@@ -614,14 +629,31 @@ const sendMessage = async () => {
       }
     }, { responseType: 'text' })
 
-    if (pollInterval) {
-      clearInterval(pollInterval)
-    }
-
-    const lastMsg = messages.value[messages.value.length - 1]
-    if (lastMsg.role === 'assistant') {
-      lastMsg.isStreaming = false
-    }
+    let pollCount = 0
+    const maxExtraPolls = 8
+    const extraPollInterval = setInterval(async () => {
+      pollCount++
+      try {
+        const res = await axios.get('/api/data/temp-txt', { params: { folder } })
+        const content = res.data.content
+        const lastMsg = messages.value[messages.value.length - 1]
+        if (lastMsg.role === 'assistant') {
+          lastMsg.content = content
+          scrollToBottom()
+        }
+      } catch (e) {
+      }
+      if (pollCount >= maxExtraPolls) {
+        clearInterval(extraPollInterval)
+        if (pollInterval) {
+          clearInterval(pollInterval)
+        }
+        const lastMsg = messages.value[messages.value.length - 1]
+        if (lastMsg.role === 'assistant') {
+          lastMsg.isStreaming = false
+        }
+      }
+    }, 150)
 
     ElMessage.success('消息已发送')
   } catch (error) {
