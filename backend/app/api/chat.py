@@ -60,11 +60,12 @@ async def chat(request: ChatRequest):
 
         def sync_callback(token: str, perplexity: float = None):
             print(f"[CHAT API] Sending token to queue: {token}")
-            queue.put_nowait((token, perplexity))
 
             temp_file_path = f"/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints/{folder}/chat-data/temp.txt"
             with open(temp_file_path, 'a', encoding='utf-8') as f:
                 f.write(token)
+
+            queue.put_nowait((token, perplexity))
 
         def run_generation():
             try:
@@ -108,6 +109,7 @@ async def chat(request: ChatRequest):
             except asyncio.TimeoutError:
                 continue
 
+        yield "data: [FINAL]\n\n"
         yield "data: [DONE]\n\n"
 
         full_response = manager.get_last_response()

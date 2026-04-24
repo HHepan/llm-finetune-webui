@@ -130,22 +130,36 @@ class RWKVInferenceManager:
 
         output = []
         is_truncated = [False]
+        stop_sequences = ["\n\nUser:", "\nAssistant:", "\n\nAssistant:", "\n\n\nAssistant:", "\nAss", "\n\nAss", "\n\n\nAss"]
+        stop_detected = [False]
+        pending_chars = []
 
         def my_print(s):
-            if s == '\n\n':
-                is_truncated[0] = True
-                raise StopIteration
-            if s == '\n':
-                is_truncated[0] = True
-                raise StopIteration
-
-            s = s.rstrip('\n')
-            if not s:
+            if stop_detected[0]:
                 return
 
-            output.append(s)
-            print(f"[RWKV] Generated token: {s}")
-            callback(s, None)
+            pending_chars.append(s)
+
+            full_text = ''.join(pending_chars)
+
+            for seq in stop_sequences:
+                if seq in full_text:
+                    is_truncated[0] = True
+                    pos = full_text.find(seq)
+                    for i in range(pos):
+                        char = pending_chars[i]
+                        if char != '\n' or output:
+                            output.append(char)
+                            callback(char, None)
+                    stop_detected[0] = True
+                    pending_chars.clear()
+                    raise StopIteration
+
+            if len(pending_chars) >= 10:
+                char = pending_chars.pop(0)
+                if char != '\n' or output:
+                    output.append(char)
+                    callback(char, None)
 
         try:
             self.pipeline.generate(
@@ -157,6 +171,13 @@ class RWKVInferenceManager:
             )
         except StopIteration:
             pass
+        finally:
+            if not stop_detected[0]:
+                for char in pending_chars:
+                    if char != '\n' or output:
+                        output.append(char)
+                        callback(char, None)
+            pending_chars.clear()
 
         self.round_count += 1
 
