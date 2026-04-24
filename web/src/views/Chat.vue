@@ -79,7 +79,10 @@
               </div>
               <div class="message-content">
                 <div class="message-text" v-html="formatMessage(msg.content)"></div>
-                <div v-if="msg.role === 'assistant' && msg.isStreaming" class="streaming-indicator">
+                <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="thinking-indicator">
+                  <span>思考中...</span>
+                </div>
+                <div v-if="msg.role === 'assistant' && msg.isStreaming && msg.content" class="streaming-indicator">
                   <span class="cursor">|</span>
                 </div>
               </div>
@@ -305,6 +308,8 @@ const messagesRef = ref(null)
 const isModelLoading = ref(false)
 const isModelLoaded = ref(false)
 const modelLoadError = ref('')
+let displayInterval = null
+let isThinking = ref(false)
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -312,6 +317,29 @@ const scrollToBottom = () => {
       messagesRef.value.scrollTop = messagesRef.value.scrollHeight
     }
   })
+}
+
+const displayCharByChar = (fullContent) => {
+  if (displayInterval) {
+    clearInterval(displayInterval)
+  }
+  isThinking.value = false
+  const content = fullContent.replace(/\n+$/, '')
+  const lastMsg = messages.value[messages.value.length - 1]
+  if (lastMsg.role !== 'assistant') return
+  lastMsg.content = ''
+  let index = 0
+  displayInterval = setInterval(() => {
+    if (index < content.length) {
+      lastMsg.content += content[index]
+      index++
+      scrollToBottom()
+    } else {
+      clearInterval(displayInterval)
+      displayInterval = null
+      lastMsg.isStreaming = false
+    }
+  }, 30)
 }
 
 const showPerplexity = ref(true)
@@ -590,76 +618,58 @@ const sendMessage = async () => {
   scrollToBottom()
   messages.value.push({ role: 'assistant', content: '', isStreaming: true })
   scrollToBottom()
+  isThinking.value = true
 
   const parts = selectedModel.value.split('/')
   const folder = parts[0]
 
-  let pollInterval = null
-
-  const startPolling = () => {
-    pollInterval = setInterval(async () => {
-      try {
-        const res = await axios.get('/api/data/temp-txt', { params: { folder } })
-        const content = res.data.content
-        const lastMsg = messages.value[messages.value.length - 1]
-        if (lastMsg.role === 'assistant') {
-          lastMsg.content = content
-          scrollToBottom()
-        }
-      } catch (e) {
-      }
-    }, 250)
-  }
-
-  startPolling()
-
   try {
-    await axios.post('/api/chat/chat', {
-      model: selectedModel.value,
-      message: userMessage,
-      messages: messages.value.slice(0, -2),
-      params: {
-        max_tokens: inferParams.max_tokens,
-        temperature: inferParams.temperature,
-        top_p: inferParams.top_p,
-        top_k: inferParams.top_k,
-        alpha_frequency: inferParams.alpha_frequency,
-        alpha_presence: inferParams.alpha_presence,
-        alpha_decay: inferParams.alpha_decay
-      }
-    }, { responseType: 'text' })
+    const response = await fetch('/api/chat/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: selectedModel.value,
+        message: userMessage,
+        messages: messages.value.slice(0, -2),
+        params: {
+          max_tokens: inferParams.max_tokens,
+          temperature: inferParams.temperature,
+          top_p: inferParams.top_p,
+          top_k: inferParams.top_k,
+          alpha_frequency: inferParams.alpha_frequency,
+          alpha_presence: inferParams.alpha_presence,
+          alpha_decay: inferParams.alpha_decay
+        }
+      })
+    })
 
-    let pollCount = 0
-    const maxExtraPolls = 8
-    const extraPollInterval = setInterval(async () => {
-      pollCount++
-      try {
-        const res = await axios.get('/api/data/temp-txt', { params: { folder } })
-        const content = res.data.content
-        const lastMsg = messages.value[messages.value.length - 1]
-        if (lastMsg.role === 'assistant') {
-          lastMsg.content = content
-          scrollToBottom()
-        }
-      } catch (e) {
-      }
-      if (pollCount >= maxExtraPolls) {
-        clearInterval(extraPollInterval)
-        if (pollInterval) {
-          clearInterval(pollInterval)
-        }
-        const lastMsg = messages.value[messages.value.length - 1]
-        if (lastMsg.role === 'assistant') {
-          lastMsg.isStreaming = false
-        }
-      }
-    }, 150)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
 
-    ElMessage.success('消息已发送')
-  } catch (error) {
-    if (pollInterval) {
-      clearInterval(pollInterval)
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const chunk = decoder.decode(value, { stream: true })
+      const lines = chunk.split('\n')
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim()
+          if (data === '[FINAL]') {
+            reader.cancel()
+            const res = await axios.get('/api/data/temp-txt', { params: { folder } })
+            displayCharByChar(res.data.content)
+            return
+          }
+        }
+      }
     }
+
+    const res = await axios.get('/api/data/temp-txt', { params: { folder } })
+    displayCharByChar(res.data.content)
+  } catch (error) {
+    isThinking.value = false
     console.error('发送消息失败', error)
     ElMessage.error('发送失败')
   }
@@ -968,6 +978,12 @@ onUnmounted(() => {
 
 .streaming-indicator {
   margin-top: 5px;
+}
+
+.thinking-indicator {
+  margin-top: 5px;
+  color: #909399;
+  font-size: 14px;
 }
 
 .cursor {
