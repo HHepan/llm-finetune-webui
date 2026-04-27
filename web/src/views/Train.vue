@@ -27,6 +27,26 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="训练进度" width="200" align="center">
+          <template #default="{ row }">
+            <div class="record-progress">
+              <div class="progress-row">
+                <span class="progress-label">Epoch</span>
+                <el-progress
+                  :percentage="getEpochProgress(row)"
+                  :stroke-width="10"
+                />
+              </div>
+              <div class="progress-row">
+                <span class="progress-label">Step</span>
+                <el-progress
+                  :percentage="getStepProgress(row)"
+                  :stroke-width="10"
+                />
+              </div>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="160" align="center">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="showDetail(row)">详情</el-button>
@@ -476,6 +496,20 @@ const currentStep = ref(0)
 const currentLr = ref(0)
 const itsPerSec = ref(0)
 const sumLoss = ref(0)
+
+const getEpochProgress = (row) => {
+  if (!row.params || !row.state) return 0
+  const total = row.params.epoch_count || 1
+  const current = row.status === 'completed' ? total : (row.state.current_epoch || 0)
+  return Math.round((current / total) * 100)
+}
+
+const getStepProgress = (row) => {
+  if (!row.params || !row.state) return 0
+  const totalSteps = Math.floor(row.params.epoch_steps / row.params.micro_bsz) || 1
+  const current = row.status === 'completed' ? totalSteps : (row.state.current_step || 0)
+  return Math.round((current / totalSteps) * 100)
+}
 
 const epochProgress = computed(() => {
   if (trainParams.epoch_count === 0) return 0
@@ -1090,6 +1124,40 @@ onUnmounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.record-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+}
+
+.record-progress .progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.record-progress .progress-label {
+  width: 40px;
+  font-size: 12px;
+  color: #606266;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.record-progress :deep(.el-progress) {
+  flex: 1;
+}
+
+.record-progress :deep(.el-progress-bar) {
+  margin-right: 0;
+}
+
+.record-progress :deep(.el-progress-bar__outer) {
+  height: 10px !important;
 }
 
 .detail-tabs {

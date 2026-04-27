@@ -79,11 +79,9 @@
               </div>
               <div class="message-content">
                 <div class="message-text" v-html="formatMessage(msg.content)"></div>
+                <span v-if="msg.role === 'assistant' && msg.isStreaming" class="cursor">|</span>
                 <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="thinking-indicator">
                   <span>思考中...</span>
-                </div>
-                <div v-if="msg.role === 'assistant' && msg.isStreaming && msg.content" class="streaming-indicator">
-                  <span class="cursor">|</span>
                 </div>
               </div>
             </div>
@@ -959,9 +957,14 @@ onUnmounted(() => {
 .message-content {
   max-width: 70%;
   margin: 0 10px;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
 }
 
 .message-text {
+  display: inline;
   padding: 12px 16px;
   border-radius: 8px;
   background: white;
@@ -974,10 +977,6 @@ onUnmounted(() => {
 .message-item.user .message-text {
   background: #409eff;
   color: white;
-}
-
-.streaming-indicator {
-  margin-top: 5px;
 }
 
 .thinking-indicator {
