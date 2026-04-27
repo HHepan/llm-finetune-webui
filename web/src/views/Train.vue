@@ -19,7 +19,7 @@
         <el-table-column prop="time" label="训练时间" width="180" align="center" />
         <el-table-column prop="folder_name" label="保存位置" width="180" />
         <el-table-column prop="base_model" label="基底模型" />
-        <el-table-column prop="train_data" label="训练数据" />
+        <el-table-column prop="train_data" label="训练数据" width="160" />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 'completed' ? 'success' : row.status === 'running' ? 'warning' : row.status === 'stopped' ? 'info' : 'info'">
@@ -27,7 +27,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="训练进度" width="200" align="center">
+        <el-table-column label="训练进度" width="320" align="center">
           <template #default="{ row }">
             <div class="record-progress">
               <div class="progress-row">
