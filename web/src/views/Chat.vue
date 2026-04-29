@@ -48,7 +48,7 @@
                 <span>模型已就绪</span>
               </div>
               <div style="flex:1;"></div>
-              <el-tooltip :content="showRightPanel ? '隐藏参数' : '显示参数'" placement="top">
+              <el-tooltip :content="showRightPanel ? '隐藏侧边栏' : '显示侧边栏'" placement="top">
                 <el-button
                   size="small"
                   @click="showRightPanel = !showRightPanel"
