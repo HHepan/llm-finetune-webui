@@ -94,6 +94,16 @@
                 >
                   重新生成
                 </el-button>
+                <el-button
+                  v-if="msg.role === 'user' && index === lastUserMessageIndex"
+                  type="warning"
+                  size="small"
+                  class="re-edit-btn"
+                  :disabled="isModelLoading || isGenerating"
+                  @click="reEditLastMessage"
+                >
+                  重新编辑
+                </el-button>
               </div>
             </div>
           </div>
@@ -302,7 +312,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { User, ChatDotRound, Loading, CircleCheck } from '@element-plus/icons-vue'
 import axios from 'axios'
@@ -726,6 +736,42 @@ const regenerateLastMessage = async () => {
   }
 
   await generateResponse(userMsg.content, false)
+}
+
+const lastUserMessageIndex = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') {
+      return i
+    }
+  }
+  return -1
+})
+
+const isGenerating = computed(() => {
+  if (isThinking.value) return true
+  if (messages.value.length === 0) return false
+  const lastMsg = messages.value[messages.value.length - 1]
+  if (lastMsg.role === 'assistant' && lastMsg.isStreaming) return true
+  return false
+})
+
+const reEditLastMessage = () => {
+  if (!selectedModel.value || isModelLoading.value) return
+
+  const lastUserIndex = lastUserMessageIndex.value
+  if (lastUserIndex === -1) {
+    ElMessage.warning('没有可重新编辑的消息')
+    return
+  }
+
+  const userMsg = messages.value[lastUserIndex]
+  messages.value = messages.value.slice(0, lastUserIndex)
+  userInput.value = userMsg.content
+
+  nextTick(() => {
+    const textarea = document.querySelector('.chat-input-area textarea')
+    if (textarea) textarea.focus()
+  })
 }
 
 const formatMessage = (content) => {
@@ -1154,5 +1200,21 @@ onUnmounted(() => {
   margin-top: 8px;
   margin-left: auto;
   display: block;
+}
+
+.re-edit-btn {
+  margin-top: 8px;
+  display: block;
+}
+
+.message-item.user .message-text {
+  flex-basis: 100%;
+}
+
+.message-item.user .re-edit-btn {
+  margin-left: 0;
+  margin-right: auto;
+  flex-basis: 10%;
+  margin-top: 8px;
 }
 </style>
