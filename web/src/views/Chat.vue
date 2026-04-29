@@ -84,6 +84,16 @@
                 <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="thinking-indicator">
                   <span>思考中...</span>
                 </div>
+                <el-button
+                  v-if="msg.role === 'assistant' && !msg.isStreaming && index === messages.length - 1"
+                  type="primary"
+                  size="small"
+                  class="regenerate-btn"
+                  :disabled="isModelLoading"
+                  @click="regenerateLastMessage"
+                >
+                  重新生成
+                </el-button>
               </div>
             </div>
           </div>
@@ -617,17 +627,11 @@ const handleEnterKey = (e) => {
   sendMessage()
 }
 
-const sendMessage = async () => {
-  if (!userInput.value.trim() || !selectedModel.value) {
-    ElMessage.warning('请选择模型并输入内容')
-    return
+const generateResponse = async (userMessageContent, isNewMessage = true) => {
+  if (isNewMessage) {
+    messages.value.push({ role: 'user', content: userMessageContent })
+    scrollToBottom()
   }
-
-  const userMessage = userInput.value.trim()
-  userInput.value = ''
-
-  messages.value.push({ role: 'user', content: userMessage })
-  scrollToBottom()
   messages.value.push({ role: 'assistant', content: '', isStreaming: true })
   scrollToBottom()
   isThinking.value = true
@@ -643,7 +647,7 @@ const sendMessage = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: selectedModel.value,
-        message: userMessage,
+        message: userMessageContent,
         messages: messages.value.slice(0, -2),
         params: {
           max_tokens: inferParams.max_tokens,
@@ -687,6 +691,41 @@ const sendMessage = async () => {
     console.error('发送消息失败', error)
     ElMessage.error('发送失败')
   }
+}
+
+const sendMessage = async () => {
+  if (!userInput.value.trim() || !selectedModel.value) {
+    ElMessage.warning('请选择模型并输入内容')
+    return
+  }
+
+  const userMessage = userInput.value.trim()
+  userInput.value = ''
+  await generateResponse(userMessage, true)
+}
+
+const regenerateLastMessage = async () => {
+  if (!selectedModel.value || isModelLoading.value) return
+
+  if (messages.value.length < 2) {
+    ElMessage.warning('没有可重新生成的消息')
+    return
+  }
+
+  const lastMsg = messages.value[messages.value.length - 1]
+  if (lastMsg.role !== 'assistant') {
+    ElMessage.warning('最后一条消息不是助手回复')
+    return
+  }
+
+  messages.value.pop()
+  const userMsg = messages.value[messages.value.length - 1]
+  if (userMsg.role !== 'user') {
+    ElMessage.warning('未找到对应的用户消息')
+    return
+  }
+
+  await generateResponse(userMsg.content, false)
 }
 
 const formatMessage = (content) => {
@@ -1109,5 +1148,11 @@ onUnmounted(() => {
   text-align: right;
   font-size: 13px;
   color: #606266;
+}
+
+.regenerate-btn {
+  margin-top: 8px;
+  margin-left: auto;
+  display: block;
 }
 </style>
