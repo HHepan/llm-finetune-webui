@@ -51,9 +51,17 @@ class RWKVInferenceManager:
         self.round_count = 0
         self.current_params = DEFAULT_PARAMS.copy()
 
-    def load_model(self, model_path: str):
+    def load_model(self, model_path: str, session: str = ''):
         """加载或切换模型"""
+        # 如果模型已加载且session相同，则不需要重新加载
         if self.current_model_path == model_path and self.model is not None:
+            # 更新参数（可能session不同）
+            if session:
+                parts = model_path.split('/')
+                if len(parts) >= 2:
+                    folder = parts[0]
+                    model_name = parts[1].replace('.pth', '')
+                    self.current_params = self.load_params_from_json(folder, model_name, session)
             return
 
         print(f"[RWKV] Loading model: {model_path}")
@@ -70,6 +78,15 @@ class RWKVInferenceManager:
 
         self.current_model_path = model_path
         self.round_count = 0
+
+        # 加载对应的参数
+        if session:
+            parts = model_path.split('/')
+            if len(parts) >= 2:
+                folder = parts[0]
+                model_name = parts[1].replace('.pth', '')
+                self.current_params = self.load_params_from_json(folder, model_name, session)
+
         print(f"[RWKV] Model loaded successfully")
 
     def unload_model(self):
@@ -87,9 +104,13 @@ class RWKVInferenceManager:
             torch.cuda.empty_cache()
             print("[RWKV] Model unloaded, memory cleaned")
 
-    def load_params_from_json(self, folder: str, model_name: str) -> Dict[str, Any]:
+    def load_params_from_json(self, folder: str, model_name: str, session: str = '') -> Dict[str, Any]:
         """从 json 文件加载推理参数"""
-        json_file = CHECKPOINT_DIR / folder / "chat-data" / f"{model_name}-data.json"
+        chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+        if session:
+            json_file = chat_data_dir / f"{model_name}-{session}-data.json"
+        else:
+            json_file = chat_data_dir / f"{model_name}-data.json"
         if json_file.exists():
             with open(json_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -105,12 +126,16 @@ class RWKVInferenceManager:
             prompt += f"{role}: {content}\n\nAssistant: "
         return prompt
 
-    def generate(self, prompt: str, callback: Callable[[str, Optional[float]], None], folder: str = None, model_name: str = None):
+    def generate(self, prompt: str, callback: Callable[[str, Optional[float]], None], folder: str = None, model_name: str = None, session: str = ''):
         """流式生成回复"""
         if self.model is None:
             raise RuntimeError("Model not loaded. Please call load_model first.")
 
         print(f"[RWKV] Starting generation with prompt: {prompt[:100]}...")
+
+        # 如果有session，重新加载对应参数
+        if session and folder and model_name:
+            self.current_params = self.load_params_from_json(folder, model_name, session)
 
         params = self.current_params
         print(f"[RWKV] Using params: {params}")

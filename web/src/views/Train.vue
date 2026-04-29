@@ -846,9 +846,27 @@ const drawLossChart = () => {
     lossChartInstance = echarts.init(lossChartRef.value)
   }
 
+  const rawData = lossData.value
+  let sampledData = rawData
+
+  if (rawData.length > 1000) {
+    let sampleRate = 1
+    if (rawData.length > 10000) {
+      sampleRate = 50
+    } else if (rawData.length > 5000) {
+      sampleRate = 20
+    } else if (rawData.length > 1000) {
+      sampleRate = 10
+    }
+    sampledData = rawData.filter((_, index) => index % sampleRate === 0)
+  }
+
   const option = {
+    animation: false,
     tooltip: {
       trigger: 'axis',
+      enterable: false,
+      confine: true,
       formatter: (params) => {
         const point = params[0]
         return `Step: ${point.value[0]}<br/>Loss: ${point.value[1]?.toFixed(4) || '-'}`
@@ -882,13 +900,12 @@ const drawLossChart = () => {
     },
     series: [{
       type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 4,
-      data: lossData.value.map(d => [d.step, d.loss]),
+      smooth: false,
+      symbol: 'none',
+      data: sampledData.map(d => [d.step, d.loss]),
       lineStyle: {
         color: '#409eff',
-        width: 2
+        width: 1.5
       },
       itemStyle: {
         color: '#409eff'
@@ -906,7 +923,7 @@ const drawLossChart = () => {
     }]
   }
 
-  lossChartInstance.setOption(option)
+  lossChartInstance.setOption(option, { notMerge: true })
   lossChartInstance.resize()
 }
 
@@ -941,7 +958,20 @@ const drawDetailLossChart = () => {
     detailLossChartInstance = echarts.init(detailLossChartRef.value)
   }
 
-  const lossData = currentDetail.value.loss_history
+  const rawData = currentDetail.value.loss_history
+  let sampledData = rawData
+
+  if (rawData.length > 1000) {
+    let sampleRate = 1
+    if (rawData.length > 10000) {
+      sampleRate = 50
+    } else if (rawData.length > 5000) {
+      sampleRate = 20
+    } else if (rawData.length > 1000) {
+      sampleRate = 10
+    }
+    sampledData = rawData.filter((_, index) => index % sampleRate === 0)
+  }
 
   const option = {
     tooltip: {
@@ -979,13 +1009,12 @@ const drawDetailLossChart = () => {
     },
     series: [{
       type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 4,
-      data: lossData.map(d => [d.step, d.loss]),
+      smooth: false,
+      symbol: 'none',
+      data: sampledData.map(d => [d.step, d.loss]),
       lineStyle: {
         color: '#409eff',
-        width: 2
+        width: 1.5
       },
       itemStyle: {
         color: '#409eff'

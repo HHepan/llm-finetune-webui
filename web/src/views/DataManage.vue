@@ -151,33 +151,72 @@
     </el-dialog>
 
     <!-- 合并与打乱数据集的弹窗 -->
-    <el-dialog v-model="mergeDialogVisible" title="合并与打乱数据集" width="600px" @closed="onMergeDialogClosed">
+    <el-dialog v-model="mergeDialogVisible" title="合并与打乱数据集" width="1000px" @closed="onMergeDialogClosed">
       <el-form label-width="120px">
         <el-form-item label="选择源数据集">
-          <el-select
-            v-model="mergeForm.sourceFiles"
-            multiple
-            placeholder="请选择要合并的文件(支持跨文件夹)"
-            style="width: 100%"
-            @change="onSourceFilesChange"
-          >
-            <el-option
-              v-for="item in allFileOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
+          <div class="source-groups">
+            <div v-for="(group, index) in mergeForm.sourceGroups" :key="index" class="source-group">
+              <div class="source-group-header">
+                <span class="group-label">数据源 {{ index + 1 }}</span>
+                <el-button
+                  type="danger"
+                  size="small"
+                  link
+                  @click="removeSourceGroup(index)"
+                  :disabled="mergeForm.sourceGroups.length <= 1"
+                >
+                  <el-icon><Delete /></el-icon> 删除
+                </el-button>
+              </div>
+              <div class="source-group-body">
+                <el-select
+                  v-model="group.folder"
+                  placeholder="选择文件夹"
+                  style="width: 180px; margin-right: 10px;"
+                  @change="(val) => onGroupFolderChange(index, val)"
+                >
+                  <el-option
+                    v-for="folder in folderList"
+                    :key="folder"
+                    :label="folder"
+                    :value="folder"
+                  />
+                </el-select>
+                <el-select
+                  v-model="group.files"
+                  multiple
+                  placeholder="选择文件"
+                  style="width: 100%;"
+                  :disabled="!group.folder"
+                  @change="onSourceFilesChange"
+                >
+                  <el-option
+                    v-for="file in getFilesByFolder(group.folder)"
+                    :key="file"
+                    :label="file"
+                    :value="file"
+                  />
+                </el-select>
+              </div>
+            </div>
+            <el-button type="primary" link @click="addSourceGroup" style="margin-top: 8px;">
+              <el-icon><Plus /></el-icon> 添加数据源
+            </el-button>
+          </div>
         </el-form-item>
 
-        <el-form-item label="是否打乱(Shuffle)">
+        <el-form-item label="是否打乱">
           <el-switch v-model="mergeForm.shuffle" />
         </el-form-item>
 
-        <el-form-item label="抽样数量分配" v-if="mergeForm.sourceFiles.length >= 1">
+        <el-form-item label="抽样数量分配" v-if="selectedSourceFiles.length >= 1">
           <div class="counts-section">
-            <div v-for="fileKey in mergeForm.sourceFiles" :key="fileKey" class="count-item">
-              <span class="count-filename">{{ fileKey }}</span>
+            <div v-for="fileKey in selectedSourceFiles" :key="fileKey" class="count-item">
+              <el-tooltip :content="fileKey" placement="top" :disabled="fileKey.length < 30">
+                <div class="count-filename-wrapper">
+                  <span class="count-filename">{{ fileKey }}</span>
+                </div>
+              </el-tooltip>
               <el-input-number
                 v-model="mergeForm.counts[fileKey]"
                 :min="0"
@@ -227,7 +266,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { CopyDocument, WarningFilled, ArrowDown, Delete } from '@element-plus/icons-vue'
+import { CopyDocument, WarningFilled, ArrowDown, Delete, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
@@ -248,24 +287,49 @@ const editForm = reactive({ id: null, conversations: [] })
 
 const mergeDialogVisible = ref(false)
 const mergeForm = reactive({
-  sourceFiles: [],
+  sourceGroups: [{ folder: '', files: [] }],
   fileStats: [],
   shuffle: true,
   newName: '',
   counts: {}
 })
 
-const allFileOptions = computed(() => {
-  const options = []
-  for (const folder of folderList.value) {
-    const files = allFilesByFolder.value[folder] || []
-    for (const file of files) {
-      const key = `${folder}/${file}`
-      options.push({ label: key, value: key })
+const selectedSourceFiles = computed(() => {
+  const files = []
+  for (const group of mergeForm.sourceGroups) {
+    for (const file of group.files) {
+      const key = `${group.folder}/${file}`
+      files.push(key)
     }
   }
-  return options
+  return files
 })
+
+const getFilesByFolder = (folder) => {
+  if (!folder) return []
+  return allFilesByFolder.value[folder] || []
+}
+
+const addSourceGroup = () => {
+  mergeForm.sourceGroups.push({ folder: '', files: [] })
+}
+
+const removeSourceGroup = (index) => {
+  if (mergeForm.sourceGroups.length <= 1) return
+  mergeForm.sourceGroups.splice(index, 1)
+  onSourceFilesChange()
+}
+
+const onGroupFolderChange = (index, folder) => {
+  mergeForm.sourceGroups[index].files = []
+  if (folder && !allFilesByFolder.value[folder]) {
+    axios.get('/api/data/files', { params: { folder } }).then(res => {
+      allFilesByFolder.value[folder] = res.data
+    }).catch(() => {
+      allFilesByFolder.value[folder] = []
+    })
+  }
+}
 
 const allFilesByFolder = ref({})
 
@@ -282,13 +346,13 @@ const mergeFormTotalCount = computed(() => {
 })
 
 const hasOverLimit = computed(() => {
-  return mergeForm.sourceFiles.some(filename => {
+  return selectedSourceFiles.value.some(filename => {
     return mergeForm.counts[filename] > getFileLineCount(filename)
   })
 })
 
 const canSubmitMerge = computed(() => {
-  if (mergeForm.sourceFiles.length < 1) return false
+  if (selectedSourceFiles.value.length < 1) return false
   if (!mergeForm.newName) return false
   if (mergeFormTotalCount.value === 0) return false
   if (hasOverLimit.value) return false
@@ -481,12 +545,12 @@ const deleteRow = async (row) => {
 }
 
 const openMergeDialog = async () => {
-  mergeForm.sourceFiles = []
+  mergeForm.sourceGroups = [{ folder: '', files: [] }]
   mergeForm.fileStats = []
   mergeForm.shuffle = true
   mergeForm.newName = ''
   mergeForm.counts = {}
-  
+
   const filesByFolder = {}
   for (const folder of folderList.value) {
     try {
@@ -497,12 +561,12 @@ const openMergeDialog = async () => {
     }
   }
   allFilesByFolder.value = filesByFolder
-  
+
   mergeDialogVisible.value = true
 }
 
 const onMergeDialogClosed = () => {
-  mergeForm.sourceFiles = []
+  mergeForm.sourceGroups = [{ folder: '', files: [] }]
   mergeForm.fileStats = []
   mergeForm.counts = {}
   allFilesByFolder.value = {}
@@ -544,12 +608,12 @@ const loadFileStats = async (fileKeys) => {
 }
 
 const onSourceFilesChange = () => {
-  loadFileStats(mergeForm.sourceFiles)
+  loadFileStats(selectedSourceFiles.value)
 }
 
 const submitMerge = async () => {
   try {
-    const sourceFiles = mergeForm.sourceFiles.map(key => {
+    const sourceFiles = selectedSourceFiles.value.map(key => {
       const parts = key.split('/')
       if (parts.length === 2) {
         return { folder: parts[0], filename: parts[1] }
@@ -598,7 +662,7 @@ onMounted(() => {
 }
 
 .file-select-btn {
-  width: 250px;
+  width: 320px;
   justify-content: space-between;
 }
 
@@ -745,13 +809,21 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.count-filename-wrapper {
+  width: 250px;
+  text-align: left;
+  flex-shrink: 0;
+}
+
 .count-filename {
-  width: 140px;
   font-size: 14px;
   color: #606266;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: default;
+  display: block;
+  text-align: left;
 }
 
 .count-label {
@@ -788,5 +860,35 @@ onMounted(() => {
   font-size: 15px;
   font-weight: 600;
   color: #303133;
+}
+
+.source-groups {
+  width: 100%;
+}
+
+.source-group {
+  margin-bottom: 12px;
+  padding: 12px;
+  background-color: #f5f7fa;
+  border-radius: 6px;
+  border: 1px solid #ebeef5;
+}
+
+.source-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.group-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #606266;
+}
+
+.source-group-body {
+  display: flex;
+  align-items: center;
 }
 </style>

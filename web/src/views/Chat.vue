@@ -16,12 +16,12 @@
               >
                 <el-option
                   v-for="item in modelList"
-                  :key="item.model"
-                  :label="item.model"
-                  :value="item.model"
+                  :key="item.model + '|' + item.session"
+                  :label="item.model + '-' + item.session"
+                  :value="item.model + '|' + item.session"
                 >
                   <div class="model-option">
-                    <span class="model-option-label">{{ item.model }}</span>
+                    <span class="model-option-label">{{ item.model + '-' + item.session }}</span>
                     <el-button
                       type="danger"
                       size="small"
@@ -58,8 +58,9 @@
             <el-select v-model="newChatModel" placeholder="模型文件" style="width: 200px;">
               <el-option v-for="model in modelFileList" :key="model" :label="model" :value="model" />
             </el-select>
+            <el-input v-model="newChatSession" placeholder="请输入对话名称" style="width: 200px;" />
             <el-button @click="cancelNewChat">取消</el-button>
-            <el-button type="success" @click="confirmNewChat">确认创建</el-button>
+            <el-button type="success" @click="confirmNewChat" :disabled="!newChatFolder || !newChatModel || !newChatSession">确认创建</el-button>
           </div>
 
           <!-- 对话消息区域 -->
@@ -348,6 +349,7 @@ const perplexityData = ref([])
 const showNewChatPanel = ref(false)
 const newChatFolder = ref('')
 const newChatModel = ref('')
+const newChatSession = ref('')
 const folderList = ref([])
 const modelFileList = ref([])
 
@@ -402,14 +404,15 @@ const loadModels = async () => {
     modelList.value = res.data
     if (modelList.value.length > 0) {
       isLoadingParams.value = true
-      selectedModel.value = modelList.value[0].model
-      inferParams.model = modelList.value[0].model
-      if (modelList.value[0].params) {
-        Object.assign(inferParams, modelList.value[0].params)
+      const first = modelList.value[0]
+      selectedModel.value = first.model + '|' + (first.session || '')
+      inferParams.model = first.model
+      if (first.params) {
+        Object.assign(inferParams, first.params)
       }
       isParamsSynced.value = true
       isLoadingParams.value = false
-      await onModelChange(modelList.value[0].model)
+      await onModelChange(selectedModel.value)
     } else {
       selectedModel.value = ''
       inferParams.model = ''
@@ -425,10 +428,14 @@ const loadModels = async () => {
 }
 
 const onModelChange = async (value) => {
-  const item = modelList.value.find(i => i.model === value)
+  const parts = value.split('|')
+  const modelPath = parts[0]
+  const session = parts[1] || ''
+
+  const item = modelList.value.find(i => i.model === modelPath && i.session === session)
   if (item) {
     isLoadingParams.value = true
-    inferParams.model = value
+    inferParams.model = modelPath
     if (item.params) {
       Object.assign(inferParams, item.params)
     }
@@ -441,7 +448,7 @@ const onModelChange = async (value) => {
   modelLoadError.value = ''
 
   try {
-    await axios.post('/api/chat/preload-model', null, { params: { model: value } })
+    await axios.post('/api/chat/preload-model', null, { params: { model: modelPath } })
     isModelLoaded.value = true
   } catch (error) {
     modelLoadError.value = error.response?.data?.detail || '模型加载失败'
@@ -450,13 +457,13 @@ const onModelChange = async (value) => {
     isModelLoading.value = false
   }
 
-  const parts = value.split('/')
-  if (parts.length >= 2) {
-    const folder = parts[0]
-    const modelName = parts[1].replace('.pth', '')
+  const pathParts = modelPath.split('/')
+  if (pathParts.length >= 2) {
+    const folder = pathParts[0]
+    const modelName = pathParts[1].replace('.pth', '')
     try {
       const res = await axios.get('/api/data/chat-data', {
-        params: { folder, model: modelName }
+        params: { folder, model: modelName, session: session }
       })
       messages.value = res.data['dialogue-content'] || []
       scrollToBottom()
@@ -468,7 +475,8 @@ const onModelChange = async (value) => {
 
 const confirmDeleteChat = async (item) => {
   try {
-    await ElMessageBox.confirm(`确定要删除对话 "${item.model}" 吗？此操作不可恢复！`, '删除确认', {
+    const displayName = item.model + '-' + (item.session || '')
+    await ElMessageBox.confirm(`确定要删除对话 "${displayName}" 吗？此操作不可恢复！`, '删除确认', {
       confirmButtonText: '确定删除',
       cancelButtonText: '取消',
       type: 'warning'
@@ -489,7 +497,7 @@ const deleteChat = async (item) => {
     const modelFile = parts[1]
     const modelName = modelFile.replace('.pth', '')
     await axios.delete(`/api/data/chat-data`, {
-      params: { folder: folder, model: modelName }
+      params: { folder: folder, model: modelName, session: item.session }
     })
     ElMessage.success('对话已删除')
     await loadModels()
@@ -525,6 +533,7 @@ const handleNewChat = async () => {
   if (showNewChatPanel.value) {
     newChatFolder.value = ''
     newChatModel.value = ''
+    newChatSession.value = ''
     modelFileList.value = []
     if (folderList.value.length === 0) {
       await loadCheckpointFolders()
@@ -532,11 +541,12 @@ const handleNewChat = async () => {
   }
 }
 
-const saveChatData = async (folder, model, params) => {
+const saveChatData = async (folder, model, session, params) => {
   try {
     await axios.post('/api/data/chat-data', {
       folder: folder,
       model: model,
+      session: session,
       params: params
     })
   } catch (error) {
@@ -545,18 +555,18 @@ const saveChatData = async (folder, model, params) => {
 }
 
 const confirmNewChat = async () => {
-  if (!newChatFolder.value || !newChatModel.value) {
-    ElMessage.warning('请选择文件夹和模型文件')
+  if (!newChatFolder.value || !newChatModel.value || !newChatSession.value) {
+    ElMessage.warning('请选择文件夹、模型文件并输入对话名称')
     return
   }
   const params = defaultParams
-  await saveChatData(newChatFolder.value, newChatModel.value, params)
+  await saveChatData(newChatFolder.value, newChatModel.value, newChatSession.value, params)
   await loadModels()
   const fullModelPath = newChatFolder.value + '/' + newChatModel.value
-  selectedModel.value = fullModelPath
+  selectedModel.value = fullModelPath + '|' + newChatSession.value
   inferParams.model = fullModelPath
   messages.value = []
-  await onModelChange(fullModelPath)
+  await onModelChange(selectedModel.value)
   Object.assign(inferParams, defaultParams)
   showNewChatPanel.value = false
   ElMessage.success('新对话已创建')
@@ -572,12 +582,16 @@ const clearHistory = async () => {
     return
   }
   try {
-    const parts = selectedModel.value.split('/')
-    const folder = parts[0]
-    const modelName = parts[1].replace('.pth', '')
+    const parts = selectedModel.value.split('|')
+    const modelPath = parts[0]
+    const session = parts[1] || ''
+    const pathParts = modelPath.split('/')
+    const folder = pathParts[0]
+    const modelName = pathParts[1].replace('.pth', '')
     await axios.put('/api/data/chat-data/dialogue', {
       folder: folder,
       model: modelName,
+      session: session,
       dialogue_content: []
     })
     messages.value = []
@@ -618,8 +632,10 @@ const sendMessage = async () => {
   scrollToBottom()
   isThinking.value = true
 
-  const parts = selectedModel.value.split('/')
-  const folder = parts[0]
+  const parts = selectedModel.value.split('|')
+  const modelPath = parts[0]
+  const pathParts = modelPath.split('/')
+  const folder = pathParts[0]
 
   try {
     const response = await fetch('/api/chat/chat', {
@@ -748,11 +764,15 @@ watch(showPerplexity, (val) => {
 watch(() => inferParams, async () => {
   if (!selectedModel.value || isParamsSynced.value === false || isLoadingParams.value) return
 
-  const parts = selectedModel.value.split('/')
-  if (parts.length < 2) return
+  const parts = selectedModel.value.split('|')
+  const modelPath = parts[0]
+  const session = parts[1] || ''
 
-  const folder = parts[0]
-  const model = parts[1]
+  const pathParts = modelPath.split('/')
+  if (pathParts.length < 2) return
+
+  const folder = pathParts[0]
+  const model = pathParts[1]
 
   isSavingParams.value = true
 
@@ -760,6 +780,7 @@ watch(() => inferParams, async () => {
     await axios.put('/api/data/chat-data', {
       folder: folder,
       model: model,
+      session: session,
       params: {
         max_tokens: inferParams.max_tokens,
         clean_rounds: inferParams.clean_rounds,
@@ -887,6 +908,7 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 250px;
 }
 
 .model-option-delete {
