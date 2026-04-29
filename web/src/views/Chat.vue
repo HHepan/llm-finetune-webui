@@ -10,7 +10,7 @@
               <el-select
                 v-model="selectedModel"
                 placeholder="暂无对话，请新建"
-                style="width: 320px;"
+                style="width: 280px;"
                 @change="onModelChange"
                 :disabled="isModelLoading"
               >
@@ -47,6 +47,16 @@
                 <el-icon><CircleCheck /></el-icon>
                 <span>模型已就绪</span>
               </div>
+              <div style="flex:1;"></div>
+              <el-tooltip :content="showRightPanel ? '隐藏参数' : '显示参数'" placement="top">
+                <el-button
+                  size="small"
+                  @click="showRightPanel = !showRightPanel"
+                  :icon="showRightPanel ? Hide : View"
+                  circle
+                >
+                </el-button>
+              </el-tooltip>
             </div>
           </template>
 
@@ -74,15 +84,10 @@
               class="message-item"
               :class="msg.role"
             >
-              <div class="message-avatar">
-                <el-icon v-if="msg.role === 'user'"><User /></el-icon>
-                <el-icon v-else><ChatDotRound /></el-icon>
-              </div>
-              <div class="message-content">
-                <div class="message-text" v-html="formatMessage(msg.content)"></div>
-                <span v-if="msg.role === 'assistant' && msg.isStreaming" class="cursor">|</span>
-                <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="thinking-indicator">
-                  <span>思考中...</span>
+              <div class="message-left">
+                <div class="message-avatar">
+                  <el-icon v-if="msg.role === 'user'"><User /></el-icon>
+                  <el-icon v-else><ChatDotRound /></el-icon>
                 </div>
                 <el-button
                   v-if="msg.role === 'assistant' && !msg.isStreaming && index === messages.length - 1"
@@ -92,7 +97,7 @@
                   :disabled="isModelLoading"
                   @click="regenerateLastMessage"
                 >
-                  重新生成
+                  New
                 </el-button>
                 <el-button
                   v-if="msg.role === 'user' && index === lastUserMessageIndex"
@@ -102,8 +107,15 @@
                   :disabled="isModelLoading || isGenerating"
                   @click="reEditLastMessage"
                 >
-                  重新编辑
+                  Edit
                 </el-button>
+              </div>
+              <div class="message-content">
+                <div class="message-text" v-html="formatMessage(msg.content)"></div>
+                <span v-if="msg.role === 'assistant' && msg.isStreaming" class="cursor">|</span>
+                <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="thinking-indicator">
+                  <span>思考中...</span>
+                </div>
               </div>
             </div>
           </div>
@@ -134,7 +146,7 @@
       </div>
 
       <!-- 右侧参数区 -->
-      <div class="right-panel">
+      <div v-show="showRightPanel" class="right-panel">
         <!-- 推理参数 -->
         <el-card class="param-card">
           <template #header>
@@ -314,7 +326,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { User, ChatDotRound, Loading, CircleCheck } from '@element-plus/icons-vue'
+import { User, ChatDotRound, Loading, CircleCheck, Hide, View } from '@element-plus/icons-vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 
@@ -329,6 +341,8 @@ const isModelLoaded = ref(false)
 const modelLoadError = ref('')
 let displayInterval = null
 let isThinking = ref(false)
+
+const showRightPanel = ref(true)
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -1196,25 +1210,22 @@ onUnmounted(() => {
   color: #606266;
 }
 
-.regenerate-btn {
-  margin-top: 8px;
-  margin-left: auto;
-  display: block;
+.message-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 10px;
 }
 
-.re-edit-btn {
-  margin-top: 8px;
-  display: block;
+.message-item.user .message-left {
+  margin-right: 0;
+  margin-left: 10px;
 }
 
-.message-item.user .message-text {
-  flex-basis: 100%;
-}
-
-.message-item.user .re-edit-btn {
-  margin-left: 0;
-  margin-right: auto;
-  flex-basis: 10%;
+.message-left .regenerate-btn,
+.message-left .re-edit-btn {
   margin-top: 8px;
+  width: 100%;
 }
 </style>
