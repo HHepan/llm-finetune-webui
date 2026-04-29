@@ -19,12 +19,32 @@
         <el-table-column prop="time" label="训练时间" width="180" align="center" />
         <el-table-column prop="folder_name" label="保存位置" width="180" />
         <el-table-column prop="base_model" label="基底模型" />
-        <el-table-column prop="train_data" label="训练数据" />
+        <el-table-column prop="train_data" label="训练数据" width="160" />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 'completed' ? 'success' : row.status === 'running' ? 'warning' : row.status === 'stopped' ? 'info' : 'info'">
               {{ row.status === 'completed' ? '已完成' : row.status === 'running' ? '训练中' : row.status === 'stopped' ? '被停止' : '未知' }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="训练进度" width="320" align="center">
+          <template #default="{ row }">
+            <div class="record-progress">
+              <div class="progress-row">
+                <span class="progress-label">Epoch</span>
+                <el-progress
+                  :percentage="getEpochProgress(row)"
+                  :stroke-width="10"
+                />
+              </div>
+              <div class="progress-row">
+                <span class="progress-label">Step</span>
+                <el-progress
+                  :percentage="getStepProgress(row)"
+                  :stroke-width="10"
+                />
+              </div>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="160" align="center">
@@ -477,6 +497,20 @@ const currentLr = ref(0)
 const itsPerSec = ref(0)
 const sumLoss = ref(0)
 
+const getEpochProgress = (row) => {
+  if (!row.params || !row.state) return 0
+  const total = row.params.epoch_count || 1
+  const current = row.status === 'completed' ? total : (row.state.current_epoch || 0)
+  return Math.round((current / total) * 100)
+}
+
+const getStepProgress = (row) => {
+  if (!row.params || !row.state) return 0
+  const totalSteps = Math.floor(row.params.epoch_steps / row.params.micro_bsz) || 1
+  const current = row.status === 'completed' ? totalSteps : (row.state.current_step || 0)
+  return Math.round((current / totalSteps) * 100)
+}
+
 const epochProgress = computed(() => {
   if (trainParams.epoch_count === 0) return 0
   return Math.round((currentEpoch.value / trainParams.epoch_count) * 100)
@@ -812,9 +846,27 @@ const drawLossChart = () => {
     lossChartInstance = echarts.init(lossChartRef.value)
   }
 
+  const rawData = lossData.value
+  let sampledData = rawData
+
+  if (rawData.length > 1000) {
+    let sampleRate = 1
+    if (rawData.length > 10000) {
+      sampleRate = 50
+    } else if (rawData.length > 5000) {
+      sampleRate = 20
+    } else if (rawData.length > 1000) {
+      sampleRate = 10
+    }
+    sampledData = rawData.filter((_, index) => index % sampleRate === 0)
+  }
+
   const option = {
+    animation: false,
     tooltip: {
       trigger: 'axis',
+      enterable: false,
+      confine: true,
       formatter: (params) => {
         const point = params[0]
         return `Step: ${point.value[0]}<br/>Loss: ${point.value[1]?.toFixed(4) || '-'}`
@@ -848,13 +900,12 @@ const drawLossChart = () => {
     },
     series: [{
       type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 4,
-      data: lossData.value.map(d => [d.step, d.loss]),
+      smooth: false,
+      symbol: 'none',
+      data: sampledData.map(d => [d.step, d.loss]),
       lineStyle: {
         color: '#409eff',
-        width: 2
+        width: 1.5
       },
       itemStyle: {
         color: '#409eff'
@@ -872,7 +923,7 @@ const drawLossChart = () => {
     }]
   }
 
-  lossChartInstance.setOption(option)
+  lossChartInstance.setOption(option, { notMerge: true })
   lossChartInstance.resize()
 }
 
@@ -907,7 +958,20 @@ const drawDetailLossChart = () => {
     detailLossChartInstance = echarts.init(detailLossChartRef.value)
   }
 
-  const lossData = currentDetail.value.loss_history
+  const rawData = currentDetail.value.loss_history
+  let sampledData = rawData
+
+  if (rawData.length > 1000) {
+    let sampleRate = 1
+    if (rawData.length > 10000) {
+      sampleRate = 50
+    } else if (rawData.length > 5000) {
+      sampleRate = 20
+    } else if (rawData.length > 1000) {
+      sampleRate = 10
+    }
+    sampledData = rawData.filter((_, index) => index % sampleRate === 0)
+  }
 
   const option = {
     tooltip: {
@@ -945,13 +1009,12 @@ const drawDetailLossChart = () => {
     },
     series: [{
       type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 4,
-      data: lossData.map(d => [d.step, d.loss]),
+      smooth: false,
+      symbol: 'none',
+      data: sampledData.map(d => [d.step, d.loss]),
       lineStyle: {
         color: '#409eff',
-        width: 2
+        width: 1.5
       },
       itemStyle: {
         color: '#409eff'
@@ -1090,6 +1153,40 @@ onUnmounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.record-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+}
+
+.record-progress .progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.record-progress .progress-label {
+  width: 40px;
+  font-size: 12px;
+  color: #606266;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.record-progress :deep(.el-progress) {
+  flex: 1;
+}
+
+.record-progress :deep(.el-progress-bar) {
+  margin-right: 0;
+}
+
+.record-progress :deep(.el-progress-bar__outer) {
+  height: 10px !important;
 }
 
 .detail-tabs {

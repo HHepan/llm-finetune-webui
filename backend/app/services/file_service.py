@@ -277,13 +277,16 @@ def get_checkpoint_file_list(folder: str = None) -> List[str]:
     return sorted(files)
 
 
-def save_chat_data(folder: str, model: str, params: dict) -> dict:
+def save_chat_data(folder: str, model: str, session: str, params: dict) -> dict:
     chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
     if not chat_data_dir.exists():
         chat_data_dir.mkdir(parents=True, exist_ok=True)
 
     model_name_without_ext = model.replace('.pth', '')
-    file_name = f"{model_name_without_ext}-data.json"
+    if session:
+        file_name = f"{model_name_without_ext}-{session}-data.json"
+    else:
+        file_name = f"{model_name_without_ext}-data.json"
     file_path = chat_data_dir / file_name
 
     if file_path.exists():
@@ -291,6 +294,7 @@ def save_chat_data(folder: str, model: str, params: dict) -> dict:
             old_data = json.load(f)
         chat_data = {
             'model': old_data['model'],
+            'session': session,
             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'params': params,
             'dialogue-content': old_data.get('dialogue-content', [])
@@ -298,6 +302,7 @@ def save_chat_data(folder: str, model: str, params: dict) -> dict:
     else:
         chat_data = {
             'model': f"{folder}/{model}",
+            'session': session,
             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'params': params,
             'dialogue-content': []
@@ -309,13 +314,16 @@ def save_chat_data(folder: str, model: str, params: dict) -> dict:
     return chat_data
 
 
-def get_chat_data(folder: str, model: str) -> dict:
+def get_chat_data(folder: str, model: str, session: str = '') -> dict:
     chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
     if not chat_data_dir.exists():
         raise FileNotFoundError(f"Chat data directory not found: {folder}")
 
     model_name_without_ext = model.replace('.pth', '')
-    file_name = f"{model_name_without_ext}-data.json"
+    if session:
+        file_name = f"{model_name_without_ext}-{session}-data.json"
+    else:
+        file_name = f"{model_name_without_ext}-data.json"
     file_path = chat_data_dir / file_name
 
     if not file_path.exists():
@@ -325,13 +333,16 @@ def get_chat_data(folder: str, model: str) -> dict:
         return json.load(f)
 
 
-def update_dialogue_content(folder: str, model: str, dialogue_content: list) -> dict:
+def update_dialogue_content(folder: str, model: str, session: str, dialogue_content: list) -> dict:
     chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
     if not chat_data_dir.exists():
         chat_data_dir.mkdir(parents=True, exist_ok=True)
 
     model_name_without_ext = model.replace('.pth', '')
-    file_name = f"{model_name_without_ext}-data.json"
+    if session:
+        file_name = f"{model_name_without_ext}-{session}-data.json"
+    else:
+        file_name = f"{model_name_without_ext}-data.json"
     file_path = chat_data_dir / file_name
 
     if not file_path.exists():
@@ -365,8 +376,10 @@ def get_chat_model_list() -> List[Dict[str, Any]]:
                     with open(json_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         if 'model' in data:
+                            session = data.get('session', '')
                             models.append({
                                 'model': data['model'],
+                                'session': session,
                                 'created_at': data.get('created_at', ''),
                                 'params': data.get('params', {})
                             })
@@ -376,9 +389,12 @@ def get_chat_model_list() -> List[Dict[str, Any]]:
     return models
 
 
-def delete_chat_data(folder: str, model_name: str) -> bool:
+def delete_chat_data(folder: str, model_name: str, session: str = '') -> bool:
     chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
-    file_name = f"{model_name}-data.json"
+    if session:
+        file_name = f"{model_name}-{session}-data.json"
+    else:
+        file_name = f"{model_name}-data.json"
     file_path = chat_data_dir / file_name
 
     if not file_path.exists():

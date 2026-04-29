@@ -471,7 +471,9 @@ async def get_train_records():
                                 "time": time_str,
                                 "base_model": params.get("base_model", "未知"),
                                 "train_data": params.get("train_data", "未知"),
-                                "status": status
+                                "status": status,
+                                "params": params,
+                                "state": status_data
                             })
                     except Exception:
                         pass

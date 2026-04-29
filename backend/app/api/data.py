@@ -28,6 +28,7 @@ async def get_checkpoint_file_list(folder: str = Query(default="")) -> List[str]
 class ChatDataRequest(BaseModel):
     folder: str
     model: str
+    session: str = ''
     params: Dict[str, Any] = {}
     dialogue_content: List[Dict[str, str]] = []
 
@@ -35,8 +36,45 @@ class ChatDataRequest(BaseModel):
 @router.post("/chat-data")
 async def save_chat_data(req: ChatDataRequest) -> Dict:
     try:
-        result = file_service.save_chat_data(req.folder, req.model, req.params)
+        result = file_service.save_chat_data(req.folder, req.model, req.session, req.params)
         return {"message": "保存成功", "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/chat-data")
+async def update_chat_params(req: ChatDataRequest) -> Dict:
+    try:
+        result = file_service.save_chat_data(req.folder, req.model, req.session, req.params)
+        return {"message": "更新成功", "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/chat-data")
+async def delete_chat_data(folder: str = Query(...), model: str = Query(...), session: str = Query(default="")) -> Dict:
+    try:
+        file_service.delete_chat_data(folder, model, session)
+        return {"message": "删除成功"}
+    except file_service.FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/chat-data")
+async def get_chat_data_endpoint(folder: str = Query(...), model: str = Query(...), session: str = Query(default="")) -> Dict:
+    try:
+        return file_service.get_chat_data(folder, model, session)
+    except file_service.FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/chat-data/dialogue")
+async def update_dialogue_content(req: ChatDataRequest) -> Dict:
+    try:
+        result = file_service.update_dialogue_content(req.folder, req.model, req.session, req.dialogue_content or [])
+        return {"message": "对话内容已更新", "data": result}
+    except file_service.FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -59,28 +97,7 @@ async def delete_chat_data(folder: str = Query(...), model: str = Query(...)) ->
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/chat-data")
-async def get_chat_data_endpoint(folder: str = Query(...), model: str = Query(...)) -> Dict:
-    try:
-        return file_service.get_chat_data(folder, model)
-    except file_service.FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/chat-data/dialogue")
-async def update_dialogue_content(req: ChatDataRequest) -> Dict:
-    try:
-        result = file_service.update_dialogue_content(req.folder, req.model, req.dialogue_content or [])
-        return {"message": "对话内容已更新", "data": result}
-    except file_service.FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+ 
 
 @router.get("/temp-txt")
 async def get_temp_txt(folder: str = Query(...)) -> Dict:

@@ -30,7 +30,7 @@ async def chat(request: ChatRequest):
     流式对话接口
     
     请求体:
-    - model: 模型路径 (如 "20260414/checkpoint-1000.pth")
+    - model: 模型路径 (如 "20260414/checkpoint-1000.pth" 或 "20260414/checkpoint-1000.pth|session")
     - message: 当前用户消息
     - messages: 对话历史
     - params: 推理参数
@@ -39,6 +39,12 @@ async def chat(request: ChatRequest):
     """
     try:
         model_path = request.model
+        # 解析 model|session 格式
+        if '|' in model_path:
+            model_path, session = model_path.split('|', 1)
+        else:
+            session = ''
+
         parts = model_path.split('/')
         if len(parts) < 2:
             raise HTTPException(status_code=400, detail="Invalid model path")
@@ -50,7 +56,7 @@ async def chat(request: ChatRequest):
         checkpoint_path = f"/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints/{folder}/{model_file_without_ext}"
 
         manager = get_inference_manager()
-        manager.load_model(checkpoint_path)
+        manager.load_model(checkpoint_path, session=session)
 
         all_messages = request.messages + [{"role": "user", "content": request.message}]
         prompt = manager.build_prompt(all_messages)
@@ -78,7 +84,8 @@ async def chat(request: ChatRequest):
                     prompt=prompt,
                     callback=sync_callback,
                     folder=folder,
-                    model_name=model_file_without_ext
+                    model_name=model_file_without_ext,
+                    session=session
                 )
                 print("[CHAT API] Generation completed")
             except Exception as e:
@@ -109,9 +116,7 @@ async def chat(request: ChatRequest):
             except asyncio.TimeoutError:
                 continue
 
-        yield "data: [FINAL]\n\n"
-        yield "data: [DONE]\n\n"
-
+        # 先保存对话内容，再发送完成标记
         full_response = manager.get_last_response()
         if full_response:
             all_messages = request.messages + [
@@ -120,10 +125,13 @@ async def chat(request: ChatRequest):
             ]
             dialogue_content = [{"role": m.role, "content": m.content} for m in all_messages]
             try:
-                file_service.update_dialogue_content(folder, model_file_without_ext, dialogue_content)
+                file_service.update_dialogue_content(folder, model_file_without_ext, session, dialogue_content)
                 print(f"[CHAT API] Dialogue saved to chat-data file")
             except Exception as e:
                 print(f"[CHAT API] Failed to save dialogue: {e}")
+
+        yield "data: [FINAL]\n\n"
+        yield "data: [DONE]\n\n"
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -146,10 +154,17 @@ async def update_params(request: UpdateParamsRequest):
 
 
 @router.post("/preload-model")
-async def preload_model(model: str = Query(...)):
+async def preload_model(model: str = Query(...), session: str = Query(default="")):
     """预加载模型"""
     try:
-        parts = model.split('/')
+        # 解析 model|session 格式
+        if '|' in model:
+            model_path, session = model.split('|', 1)
+        else:
+            model_path = model
+            session = session or ''
+
+        parts = model_path.split('/')
         if len(parts) < 2:
             raise HTTPException(status_code=400, detail="Invalid model path")
 
@@ -160,10 +175,10 @@ async def preload_model(model: str = Query(...)):
         checkpoint_path = f"/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints/{folder}/{model_file_without_ext}"
 
         manager = get_inference_manager()
-        manager.load_model(checkpoint_path)
+        manager.load_model(checkpoint_path, session=session)
 
-        print(f"[CHAT API] Model preloaded: {model}")
-        return {"message": "模型加载成功", "model": model}
+        print(f"[CHAT API] Model preloaded: {model_path}, session: {session}")
+        return {"message": "模型加载成功", "model": model_path, "session": session}
     except Exception as e:
         print(f"[CHAT API] Failed to preload model: {e}")
         raise HTTPException(status_code=500, detail=str(e))
