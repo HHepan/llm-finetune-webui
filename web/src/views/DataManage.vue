@@ -182,6 +182,14 @@
                     :value="folder"
                   />
                 </el-select>
+                <el-checkbox
+                  v-if="group.folder"
+                  v-model="group.selectAll"
+                  @change="(val) => onSelectAllChange(index, val)"
+                  style="margin-right: 10px;"
+                >
+                  一键全选
+                </el-checkbox>
                 <el-select
                   v-model="group.files"
                   multiple
@@ -287,7 +295,7 @@ const editForm = reactive({ id: null, conversations: [] })
 
 const mergeDialogVisible = ref(false)
 const mergeForm = reactive({
-  sourceGroups: [{ folder: '', files: [] }],
+  sourceGroups: [{ folder: '', files: [], selectAll: false }],
   fileStats: [],
   shuffle: true,
   newName: '',
@@ -311,7 +319,7 @@ const getFilesByFolder = (folder) => {
 }
 
 const addSourceGroup = () => {
-  mergeForm.sourceGroups.push({ folder: '', files: [] })
+  mergeForm.sourceGroups.push({ folder: '', files: [], selectAll: false })
 }
 
 const removeSourceGroup = (index) => {
@@ -322,6 +330,7 @@ const removeSourceGroup = (index) => {
 
 const onGroupFolderChange = (index, folder) => {
   mergeForm.sourceGroups[index].files = []
+  mergeForm.sourceGroups[index].selectAll = false
   if (folder && !allFilesByFolder.value[folder]) {
     axios.get('/api/data/files', { params: { folder } }).then(res => {
       allFilesByFolder.value[folder] = res.data
@@ -329,6 +338,20 @@ const onGroupFolderChange = (index, folder) => {
       allFilesByFolder.value[folder] = []
     })
   }
+}
+
+const onSelectAllChange = (index, val) => {
+  const group = mergeForm.sourceGroups[index]
+  if (!group.folder) return
+
+  if (val) {
+    const files = getFilesByFolder(group.folder).filter(file => file.endsWith('.jsonl'))
+    group.files = [...files]
+  } else {
+    group.files = []
+  }
+
+  onSourceFilesChange()
 }
 
 const allFilesByFolder = ref({})
