@@ -262,7 +262,7 @@
 
             <el-form-item label="epoch_steps">
               <el-tooltip content="每个训练轮次的步数，增加会拉长单个 epoch 的训练时间" placement="top">
-                <el-input-number v-model="trainParams.epoch_steps" :min="1" :max="10000" style="width: 100%" :disabled="trainingStatus === 'running'" />
+                <el-input-number v-model="trainParams.epoch_steps" :min="1" style="width: 100%" :disabled="trainingStatus === 'running'" />
               </el-tooltip>
             </el-form-item>
 
