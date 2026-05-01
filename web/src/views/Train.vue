@@ -17,8 +17,8 @@
     <div v-show="activeTab === 'record'" class="record-view">
       <el-table v-if="trainRecords.length > 0" :data="paginatedRecords" border stripe style="width: 100%">
         <el-table-column prop="time" label="训练时间" width="180" align="center" />
-        <el-table-column prop="folder_name" label="保存位置" width="180" />
-        <el-table-column prop="base_model" label="基底模型" />
+        <el-table-column prop="folder_name" label="保存位置" width="120" />
+        <el-table-column prop="base_model" label="基底模型" width="220" />
         <el-table-column prop="train_data" label="训练数据" width="160" />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
@@ -27,7 +27,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="训练进度" width="320" align="center">
+        <el-table-column label="训练进度" align="center">
           <template #default="{ row }">
             <div class="record-progress">
               <div class="progress-row">
@@ -262,7 +262,7 @@
 
             <el-form-item label="epoch_steps">
               <el-tooltip content="每个训练轮次的步数，增加会拉长单个 epoch 的训练时间" placement="top">
-                <el-input-number v-model="trainParams.epoch_steps" :min="1" :max="10000" style="width: 100%" :disabled="trainingStatus === 'running'" />
+                <el-input-number v-model="trainParams.epoch_steps" :min="1" style="width: 100%" :disabled="trainingStatus === 'running'" />
               </el-tooltip>
             </el-form-item>
 
@@ -799,6 +799,18 @@ const startPolling = () => {
       itsPerSec.value = status.its_per_sec || 0
       sumLoss.value = status.sum_loss || 0
 
+      // 更新训练记录中正在训练的那条记录的状态
+      const runningRecord = trainRecords.value.find(r => r.folder_name === saveFolder.value)
+      if (runningRecord) {
+        runningRecord.state = {
+          current_epoch: status.current_epoch,
+          current_step: status.current_step,
+          current_lr: status.current_lr,
+          its_per_sec: status.its_per_sec,
+          sum_loss: status.sum_loss
+        }
+      }
+
       logs.value = logsRes.data
 
       nextTick(() => {
@@ -820,6 +832,10 @@ const startPolling = () => {
           trainingStatus.value = 'idle'
           currentEpoch.value = trainParams.epoch_count
           currentStep.value = Math.floor(trainParams.epoch_steps / trainParams.micro_bsz)
+          // 更新训练记录的状态为已完成
+          if (runningRecord) {
+            runningRecord.status = 'completed'
+          }
           ElMessage.success('训练完成')
         } else {
           trainingStatus.value = 'idle'

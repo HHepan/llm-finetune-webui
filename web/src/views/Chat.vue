@@ -931,7 +931,7 @@ onUnmounted(() => {
 .content-wrapper {
   display: flex;
   gap: 20px;
-  height: calc(100vh - 180px);
+  height: calc(100vh - 140px);
 }
 
 .left-panel {
