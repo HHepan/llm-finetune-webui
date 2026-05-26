@@ -17,6 +17,7 @@ from rwkv.model import RWKV
 from rwkv.utils import PIPELINE, PIPELINE_ARGS
 
 CHECKPOINT_DIR = Path("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints")
+BASE_MODELS_DIR = Path("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/base_models")
 VOCAB_PATH = "/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/tools/RWKV-PEFT/json2binidx_tool/rwkv_vocab_v20230424.txt"
 
 DEFAULT_PARAMS = {
@@ -106,7 +107,10 @@ class RWKVInferenceManager:
 
     def load_params_from_json(self, folder: str, model_name: str, session: str = '') -> Dict[str, Any]:
         """从 json 文件加载推理参数"""
-        chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+        if folder == "base_models":
+            chat_data_dir = BASE_MODELS_DIR / "chat-data"
+        else:
+            chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
         if session:
             json_file = chat_data_dir / f"{model_name}-{session}-data.json"
         else:
@@ -118,12 +122,39 @@ class RWKVInferenceManager:
         return DEFAULT_PARAMS.copy()
 
     def build_prompt(self, messages: list) -> str:
-        """构建 prompt，包含对话历史"""
+        """构建 prompt，包含角色卡和对话历史
+
+        RWKV-7 G1x 模板格式:
+            System: 角色卡定义（可选）
+
+            User: 消息
+
+            Assistant: 回复
+
+            User: 消息
+
+            Assistant:
+        """
         prompt = ""
-        for msg in messages:
-            role = "User" if (msg.get("role") if isinstance(msg, dict) else msg.role) == "user" else "Assistant"
+
+        # 1. 处理 system 角色卡（如果有）
+        system_content = None
+        if messages and messages[0].get("role") == "system" if isinstance(messages[0], dict) else messages[0].role == "system":
+            system_content = messages[0].get("content") if isinstance(messages[0], dict) else messages[0].content
+            messages = messages[1:]  # 移除 system 消息，后面统一处理
+
+        if system_content:
+            prompt += f"System: {system_content}\n\n"
+
+        # 2. 构建对话历史
+        for i, msg in enumerate(messages):
+            raw_role = msg.get("role") if isinstance(msg, dict) else msg.role
             content = msg.get("content") if isinstance(msg, dict) else msg.content
-            prompt += f"{role}: {content}\n\nAssistant: "
+            role = "User" if raw_role == "user" else "Assistant"
+            prompt += f"{role}: {content}\n\n"
+
+        # 3. 最后以 Assistant: 结尾，触发模型回复
+        prompt += "Assistant:"
         return prompt
 
     def generate(self, prompt: str, callback: Callable[[str, Optional[float]], None], folder: str = None, model_name: str = None, session: str = ''):
@@ -219,6 +250,11 @@ class RWKVInferenceManager:
 
 
 _manager = RWKVInferenceManager()
+
+
+def get_inference_manager() -> RWKVInferenceManager:
+    return _manager
+RWKVInferenceManager()
 
 
 def get_inference_manager() -> RWKVInferenceManager:

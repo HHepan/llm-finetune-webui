@@ -48,6 +48,63 @@
                 <span>模型已就绪</span>
               </div>
               <div style="flex:1;"></div>
+
+              <!-- 角色选择下拉框 -->
+              <el-select
+                v-model="selectedRole"
+                placeholder="选择角色"
+                style="width: 220px; margin-right: 8px;"
+                size="small"
+                @change="onRoleChange"
+                :disabled="isModelLoading"
+              >
+                <el-option
+                  v-for="role in roleList"
+                  :key="role.id"
+                  :label="role.name"
+                  :value="role.id"
+                >
+                  <div class="role-option">
+                    <span class="role-option-label">{{ role.name }}</span>
+                    <div class="role-option-buttons">
+                      <el-button
+                        v-if="role.id !== 'none'"
+                        type="primary"
+                        size="small"
+                        circle
+                        :icon="Edit"
+                        class="role-option-btn"
+                        @click.stop="handleEditRole(role)"
+                      />
+                      <el-button
+                        v-if="role.id !== 'none'"
+                        type="danger"
+                        size="small"
+                        circle
+                        :icon="Delete"
+                        class="role-option-btn"
+                        @click.stop="confirmDeleteRole(role)"
+                      />
+                    </div>
+                  </div>
+                </el-option>
+              </el-select>
+
+              <!-- 添加角色按钮 -->
+              <el-tooltip content="新建角色卡" placement="top">
+                <el-button
+                  size="small"
+                  type="primary"
+                  :icon="Plus"
+                  circle
+                  @click="showAddRoleDialog = true"
+                  style="margin-right: 8px;"
+                  :disabled="isModelLoading"
+                >
+                </el-button>
+              </el-tooltip>
+
+              <!-- 侧边栏切换 -->
               <el-tooltip :content="showRightPanel ? '隐藏侧边栏' : '显示侧边栏'" placement="top">
                 <el-button
                   size="small"
@@ -321,12 +378,35 @@
       </div>
     </div>
   </div>
+
+  <!-- 添加/编辑角色对话框 -->
+  <el-dialog v-model="showAddRoleDialog" :title="isEditingRole ? '编辑角色卡' : '新建角色卡'" width="1000px">
+    <el-form :model="newRoleForm" label-width="80px">
+      <el-form-item label="角色名称">
+        <el-input v-model="newRoleForm.name" placeholder="请输入角色名称" />
+      </el-form-item>
+      <el-form-item label="角色设定">
+        <el-input
+          v-model="newRoleForm.content"
+          type="textarea"
+          :rows="10"
+          placeholder="请输入角色设定描述，例如：&#10;你是一位温柔知性的学姐，说话总是带着微笑，给人一种如沐春风的感觉。喜欢用过来人的身份给后辈建议，偶尔也会展现出不为人知的调皮一面。称呼对方为'后辈君'。"
+        />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="closeRoleDialog">取消</el-button>
+      <el-button type="primary" @click="confirmAddRole" :disabled="!newRoleForm.name.trim() || !newRoleForm.content.trim()">
+        {{ isEditingRole ? '确认修改' : '确认添加' }}
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { User, ChatDotRound, Loading, CircleCheck, Hide, View } from '@element-plus/icons-vue'
+import { User, ChatDotRound, Loading, CircleCheck, Hide, View, Plus, Edit, Delete  } from '@element-plus/icons-vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 
@@ -387,6 +467,117 @@ const newChatSession = ref('')
 const folderList = ref([])
 const modelFileList = ref([])
 
+// 角色管理
+const selectedRole = ref('none')
+const showAddRoleDialog = ref(false)
+const editingRole = ref(null)  // 正在编辑的角色，null=新建模式
+const isEditingRole = computed(() => editingRole.value !== null)
+const newRoleForm = reactive({
+  name: '',
+  content: ''
+})
+
+// 初始只包含"无"，后续从后端加载
+const roleList = ref([
+  { id: 'none', name: '无（普通对话）', content: '' }
+])
+
+// 从后端加载角色列表
+async function loadRoleList() {
+  try {
+    const res = await axios.get('/api/data/roles')
+    const roles = res.data || []
+    roleList.value = [
+      { id: 'none', name: '无（普通对话）', content: '' },
+      ...roles
+    ]
+  } catch (e) {
+    console.error('加载角色列表失败', e)
+  }
+}
+
+const roleplayParams = {
+  temperature: 0.6,
+  top_p: 0.7,
+  top_k: 0,
+  alpha_frequency: 0.2,
+  alpha_presence: 2.0,
+  alpha_decay: 0.99
+}
+
+const onRoleChange = (val) => {
+  if (val === 'none') {
+    // 恢复默认参数
+    Object.assign(inferParams, defaultParams)
+    isParamsSynced.value = false
+    ElMessage.info('已切换为普通对话模式，推理参数已恢复默认')
+  } else {
+    const role = roleList.value.find(r => r.id === val)
+    if (role) {
+      // 切换到角色扮演推荐参数
+      Object.assign(inferParams, roleplayParams)
+      isParamsSynced.value = false
+      ElMessage.success(`已切换角色：${role.name}，推理参数已调整为角色扮演模式`)
+    }
+  }
+}
+
+const confirmDeleteRole = async (role) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除角色 "${role.name}" 吗？`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await axios.delete(`/api/data/roles/${role.id}`)
+    roleList.value = roleList.value.filter(r => r.id !== role.id)
+    if (selectedRole.value === role.id) {
+      selectedRole.value = 'none'
+    }
+    ElMessage.success('角色已删除')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
+}
+
+const handleEditRole = (role) => {
+  editingRole.value = role
+  newRoleForm.name = role.name
+  newRoleForm.content = role.content
+  showAddRoleDialog.value = true
+}
+
+const closeRoleDialog = () => {
+  showAddRoleDialog.value = false
+  editingRole.value = null
+  newRoleForm.name = ''
+  newRoleForm.content = ''
+}
+
+const confirmAddRole = async () => {
+  const name = newRoleForm.name.trim()
+  const content = newRoleForm.content.trim()
+  if (!name || !content) {
+    ElMessage.warning('请填写角色名称和设定')
+    return
+  }
+  const id = isEditingRole.value ? editingRole.value.id : 'custom_' + Date.now()
+  try {
+    await axios.post('/api/data/roles', { id, name, content })
+    await loadRoleList()
+    if (!isEditingRole.value) {
+      selectedRole.value = id
+      onRoleChange(id)  // 手动触发，应用角色卡的推理参数
+    }
+    closeRoleDialog()
+    ElMessage.success(isEditingRole.value ? `角色「${name}」已更新` : `角色「${name}」已创建并切换`)
+  } catch (e) {
+    ElMessage.error(isEditingRole.value ? '编辑角色失败' : '创建角色失败')
+  }
+}
+
 const loadCheckpointFolders = async () => {
   try {
     const res = await axios.get('/api/data/checkpoint-folders')
@@ -402,6 +593,15 @@ const loadCheckpointFiles = async (folder) => {
     modelFileList.value = res.data
   } catch (error) {
     console.error('获取模型文件列表失败', error)
+  }
+}
+
+const loadBaseModelFiles = async () => {
+  try {
+    const res = await axios.get('/api/data/base-model-files')
+    modelFileList.value = res.data
+  } catch (error) {
+    console.error('获取基底模型文件列表失败', error)
   }
 }
 
@@ -572,6 +772,10 @@ const handleNewChat = async () => {
     if (folderList.value.length === 0) {
       await loadCheckpointFolders()
     }
+    // 添加基底模型选项到文件夹列表
+    if (!folderList.value.includes('base_models')) {
+      folderList.value.unshift('base_models')
+    }
   }
 }
 
@@ -639,7 +843,11 @@ const clearHistory = async () => {
 const onFolderChange = async (val) => {
   newChatModel.value = ''
   if (val) {
-    await loadCheckpointFiles(val)
+    if (val === 'base_models') {
+      await loadBaseModelFiles()
+    } else {
+      await loadCheckpointFiles(val)
+    }
   }
 }
 
@@ -666,13 +874,25 @@ const generateResponse = async (userMessageContent, isNewMessage = true) => {
   const folder = pathParts[0]
 
   try {
+    // 如果有选中角色，在历史消息前插入 system 消息作为角色卡
+    let historyMessages = messages.value.slice(0, -2)
+    if (selectedRole.value && selectedRole.value !== 'none') {
+      const roleCard = roleList.value.find(r => r.id === selectedRole.value)
+      if (roleCard && roleCard.content) {
+        historyMessages = [
+          { role: 'system', content: roleCard.content },
+          ...historyMessages
+        ]
+      }
+    }
+
     const response = await fetch('/api/chat/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: selectedModel.value,
         message: userMessageContent,
-        messages: messages.value.slice(0, -2),
+        messages: historyMessages,
         params: {
           max_tokens: inferParams.max_tokens,
           temperature: inferParams.temperature,
@@ -917,6 +1137,7 @@ onMounted(() => {
   loadModels()
   loadParams()
   loadCheckpointFolders()
+  loadRoleList()
 })
 
 onUnmounted(() => {
@@ -1013,6 +1234,32 @@ onUnmounted(() => {
 .model-option-delete {
   flex-shrink: 0;
   margin-left: 10px;
+}
+
+.role-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.role-option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-option-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.role-option-btn {
+  flex-shrink: 0;
 }
 
 .new-chat-panel {
