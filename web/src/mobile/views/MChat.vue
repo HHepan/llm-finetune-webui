@@ -162,39 +162,24 @@
         </div>
         <el-form :model="inferParams" label-width="0">
           <div class="m-param-item">
-            <div class="m-param-label">
-              temperature
-              <span class="m-param-value">{{ inferParams.temperature.toFixed(2) }}</span>
-            </div>
-            <el-slider v-model="inferParams.temperature" :min="0" :max="2" :step="0.01" size="small" />
+            <div class="m-param-label">temperature</div>
+            <el-input-number v-model="inferParams.temperature" :min="0" :max="2" :step="0.01" :precision="2" size="small" style="width:100%;" />
           </div>
           <div class="m-param-item">
-            <div class="m-param-label">
-              top_p
-              <span class="m-param-value">{{ inferParams.top_p.toFixed(2) }}</span>
-            </div>
-            <el-slider v-model="inferParams.top_p" :min="0" :max="1" :step="0.01" size="small" />
+            <div class="m-param-label">top_p</div>
+            <el-input-number v-model="inferParams.top_p" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
           </div>
           <div class="m-param-item">
-            <div class="m-param-label">
-              alpha_frequency
-              <span class="m-param-value">{{ inferParams.alpha_frequency.toFixed(2) }}</span>
-            </div>
-            <el-slider v-model="inferParams.alpha_frequency" :min="0" :max="1" :step="0.01" size="small" />
+            <div class="m-param-label">alpha_frequency</div>
+            <el-input-number v-model="inferParams.alpha_frequency" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
           </div>
           <div class="m-param-item">
-            <div class="m-param-label">
-              alpha_presence
-              <span class="m-param-value">{{ inferParams.alpha_presence.toFixed(2) }}</span>
-            </div>
-            <el-slider v-model="inferParams.alpha_presence" :min="0" :max="1" :step="0.01" size="small" />
+            <div class="m-param-label">alpha_presence</div>
+            <el-input-number v-model="inferParams.alpha_presence" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
           </div>
           <div class="m-param-item">
-            <div class="m-param-label">
-              alpha_decay
-              <span class="m-param-value">{{ inferParams.alpha_decay.toFixed(3) }}</span>
-            </div>
-            <el-slider v-model="inferParams.alpha_decay" :min="0" :max="1" :step="0.001" size="small" />
+            <div class="m-param-label">alpha_decay</div>
+            <el-input-number v-model="inferParams.alpha_decay" :min="0" :max="1" :step="0.001" :precision="3" size="small" style="width:100%;" />
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">
             <div>
@@ -975,10 +960,47 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
+.m-param-item .el-slider,
+.m-param-item .el-slider__runway {
+  touch-action: pan-y;
+}
+
+.m-param-item .el-slider__runway {
+  cursor: pointer;
+}
+
+.m-param-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  margin-bottom: 6px;
+}
+
+.m-param-value {
+  font-weight: 600;
+  color: var(--c-primary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 消息里的 br 保留间距 */
 .m-chat-text :deep(br) {
   display: block;
   content: '';
   margin: 4px 0;
+}
+
+/* 弹窗内滚动条可见 */
+.m-chat-page .m-modal-content {
+  overflow-y: auto;
+}
+.m-chat-page .m-modal-content::-webkit-scrollbar {
+  width: 6px;
+}
+.m-chat-page .m-modal-content::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
 }
 </style>
