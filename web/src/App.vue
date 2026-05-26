@@ -1,11 +1,16 @@
 <template>
-  <el-container class="layout-container">
+  <!-- 移动端路由：直接渲染，不要侧边栏 -->
+  <template v-if="isMobileRoute">
+    <router-view />
+  </template>
+
+  <!-- 桌面端路由：保持原有布局 -->
+  <el-container v-else class="layout-container">
     <!-- 左侧侧边栏 -->
     <el-aside width="200px" class="aside">
       <div class="logo">
         <h3>LLM WebUI</h3>
       </div>
-      <!-- 菜单，默认高亮当前路由 -->
       <el-menu
         :default-active="$route.path"
         router
@@ -29,14 +34,15 @@
       </el-menu>
     </el-aside>
 
-    <!-- 右侧主体区域 -->
     <el-container>
       <el-header class="header">
         <span class="header-title">{{ $route.meta.title }}</span>
+        <div style="margin-left: auto;">
+          <a href="/m/data" style="color: #409eff; text-decoration: none; font-size: 13px;">📱 手机版</a>
+        </div>
       </el-header>
-      
+
       <el-main class="main-content">
-        <!-- 路由出口：点击左侧菜单，这里的内容会切换 -->
         <router-view />
       </el-main>
     </el-container>
@@ -44,7 +50,12 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { Document, Cpu, ChatDotRound } from '@element-plus/icons-vue'
+
+const route = useRoute()
+const isMobileRoute = computed(() => route.path.startsWith('/m'))
 </script>
 
 <style>

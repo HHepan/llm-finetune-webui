@@ -37,7 +37,7 @@
               <el-button type="warning" @click="clearHistory" :disabled="!selectedModel">清空历史</el-button>
               <div v-if="isModelLoading" class="model-status loading">
                 <el-icon class="loading-icon"><Loading /></el-icon>
-                <span>正在加载模型</span>
+                <span>模型加载</span>
               </div>
               <div v-else-if="modelLoadError" class="model-status error">
                 <span>{{ modelLoadError }}</span>
@@ -45,7 +45,7 @@
               </div>
               <div v-else-if="isModelLoaded" class="model-status success">
                 <el-icon><CircleCheck /></el-icon>
-                <span>模型已就绪</span>
+                <span>模型就绪</span>
               </div>
               <div style="flex:1;"></div>
 
