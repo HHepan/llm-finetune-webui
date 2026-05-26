@@ -2,9 +2,10 @@ from typing import List, Dict, Optional, Any
 from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel
 from pathlib import Path
+import json
 
 from app.services import file_service
-from app.core.config import CHECKPOINT_DIR
+from app.core.config import CHECKPOINT_DIR, BASE_DIR
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -102,7 +103,10 @@ async def delete_chat_data(folder: str = Query(...), model: str = Query(...)) ->
 @router.get("/temp-txt")
 async def get_temp_txt(folder: str = Query(...)) -> Dict:
     try:
-        temp_file_path = CHECKPOINT_DIR / folder / "chat-data" / "temp.txt"
+        if folder == "base_models":
+            temp_file_path = BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt"
+        else:
+            temp_file_path = CHECKPOINT_DIR / folder / "chat-data" / "temp.txt"
         if temp_file_path.exists():
             with open(temp_file_path, 'r', encoding='utf-8') as f:
                 return {"content": f.read()}
@@ -123,6 +127,68 @@ async def get_chat_model_list() -> List[Dict[str, Any]]:
 async def get_base_model_list() -> List[str]:
     try:
         return file_service.get_base_model_list()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/base-model-files")
+async def get_base_model_file_list() -> List[str]:
+    try:
+        return file_service.get_base_model_file_list()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class RoleRequest(BaseModel):
+    id: str
+    name: str
+    content: str
+
+
+@router.get("/roles")
+async def get_role_list() -> List[Dict[str, str]]:
+    """获取所有角色卡列表（从 base_models 目录读取 role_*.json）"""
+    try:
+        base_models_dir = BASE_DIR / "workspace" / "base_models"
+        roles = []
+        if base_models_dir.exists():
+            for f in base_models_dir.iterdir():
+                if f.name.startswith("rwkv_role_") and f.suffix == ".json":
+                    with open(f, "r", encoding="utf-8") as fh:
+                        roles.append(json.load(fh))
+        # 按角色名排序
+        roles.sort(key=lambda r: r.get("name", ""))
+        return roles
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/roles")
+async def save_role(req: RoleRequest) -> Dict:
+    """保存角色卡为 JSON 文件"""
+    try:
+        base_models_dir = BASE_DIR / "workspace" / "base_models"
+        base_models_dir.mkdir(parents=True, exist_ok=True)
+        file_path = base_models_dir / f"rwkv_role_{req.id}.json"
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump({"id": req.id, "name": req.name, "content": req.content}, f, ensure_ascii=False, indent=2)
+        return {"message": f"角色「{req.name}」已保存", "id": req.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/roles/{role_id}")
+async def delete_role(role_id: str) -> Dict:
+    """删除角色卡 JSON 文件"""
+    try:
+        base_models_dir = BASE_DIR / "workspace" / "base_models"
+        file_path = base_models_dir / f"rwkv_role_{role_id}.json"
+        if file_path.exists():
+            file_path.unlink()
+            return {"message": "角色已删除"}
+        raise HTTPException(status_code=404, detail="角色不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

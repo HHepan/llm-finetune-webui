@@ -7,7 +7,8 @@ import asyncio
 
 from app.services import file_service
 
-from app.services.rwkv_inference import get_inference_manager
+from app.services.rwkv_inference import get_inference_manager, CHECKPOINT_DIR
+from app.core.config import BASE_DIR
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -53,10 +54,15 @@ async def chat(request: ChatRequest):
         model_file = parts[1]
         model_file_without_ext = model_file.replace('.pth', '')
 
-        checkpoint_path = f"/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints/{folder}/{model_file_without_ext}"
+        if folder == "base_models":
+            # 基底模型：RWKV 库会自动加 .pth 后缀
+            model_full_path = str(BASE_DIR / "workspace" / "base_models" / model_file_without_ext)
+        else:
+            # checkpoint 模型：使用 checkpoints/{folder}/{model_name}（无 .pth 后缀）
+            model_full_path = str(CHECKPOINT_DIR / folder / model_file_without_ext)
 
         manager = get_inference_manager()
-        manager.load_model(checkpoint_path, session=session)
+        manager.load_model(model_full_path, session=session)
 
         all_messages = request.messages + [{"role": "user", "content": request.message}]
         prompt = manager.build_prompt(all_messages)
@@ -67,7 +73,10 @@ async def chat(request: ChatRequest):
         def sync_callback(token: str, perplexity: float = None):
             print(f"[CHAT API] Sending token to queue: {token}")
 
-            temp_file_path = f"/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints/{folder}/chat-data/temp.txt"
+            if folder == "base_models":
+                temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
+            else:
+                temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
             with open(temp_file_path, 'a', encoding='utf-8') as f:
                 f.write(token)
 
@@ -75,7 +84,10 @@ async def chat(request: ChatRequest):
 
         def run_generation():
             try:
-                temp_file_path = f"/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints/{folder}/chat-data/temp.txt"
+                if folder == "base_models":
+                    temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
+                else:
+                    temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
                 with open(temp_file_path, 'w', encoding='utf-8') as f:
                     pass
 
@@ -172,10 +184,13 @@ async def preload_model(model: str = Query(...), session: str = Query(default=""
         model_file = parts[1]
         model_file_without_ext = model_file.replace('.pth', '')
 
-        checkpoint_path = f"/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints/{folder}/{model_file_without_ext}"
+        if folder == "base_models":
+            model_full_path = str(BASE_DIR / "workspace" / "base_models" / model_file_without_ext)
+        else:
+            model_full_path = str(CHECKPOINT_DIR / folder / model_file_without_ext)
 
         manager = get_inference_manager()
-        manager.load_model(checkpoint_path, session=session)
+        manager.load_model(model_full_path, session=session)
 
         print(f"[CHAT API] Model preloaded: {model_path}, session: {session}")
         return {"message": "模型加载成功", "model": model_path, "session": session}

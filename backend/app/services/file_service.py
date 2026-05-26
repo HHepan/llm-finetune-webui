@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 
 from app.core.config import DATA_DIR, BASE_DIR, CHECKPOINT_DIR
 
+BASE_MODELS_DIR = BASE_DIR / "workspace" / "base_models"
+
 
 class FileNotFoundError(Exception):
     pass
@@ -277,8 +279,20 @@ def get_checkpoint_file_list(folder: str = None) -> List[str]:
     return sorted(files)
 
 
+def get_base_model_file_list() -> List[str]:
+    """获取 base_models 目录下的模型文件列表"""
+    return get_base_model_list()
+
+
+def _get_chat_data_dir(folder: str) -> Path:
+    """获取 chat-data 目录路径，支持 base_models 和 checkpoints"""
+    if folder == "base_models":
+        return BASE_MODELS_DIR / "chat-data"
+    return CHECKPOINT_DIR / folder / "chat-data"
+
+
 def save_chat_data(folder: str, model: str, session: str, params: dict) -> dict:
-    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    chat_data_dir = _get_chat_data_dir(folder)
     if not chat_data_dir.exists():
         chat_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -315,7 +329,7 @@ def save_chat_data(folder: str, model: str, session: str, params: dict) -> dict:
 
 
 def get_chat_data(folder: str, model: str, session: str = '') -> dict:
-    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    chat_data_dir = _get_chat_data_dir(folder)
     if not chat_data_dir.exists():
         raise FileNotFoundError(f"Chat data directory not found: {folder}")
 
@@ -334,7 +348,7 @@ def get_chat_data(folder: str, model: str, session: str = '') -> dict:
 
 
 def update_dialogue_content(folder: str, model: str, session: str, dialogue_content: list) -> dict:
-    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    chat_data_dir = _get_chat_data_dir(folder)
     if not chat_data_dir.exists():
         chat_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -361,16 +375,35 @@ def update_dialogue_content(folder: str, model: str, session: str, dialogue_cont
 
 def get_chat_model_list() -> List[Dict[str, Any]]:
     models = []
-    if not CHECKPOINT_DIR.exists():
-        return models
 
-    for folder in CHECKPOINT_DIR.iterdir():
-        if not folder.is_dir() or folder.name.startswith('.'):
-            continue
-        chat_data_dir = folder / "chat-data"
-        if not chat_data_dir.exists():
-            continue
-        for json_file in chat_data_dir.iterdir():
+    # 从 checkpoints 读取对话
+    if CHECKPOINT_DIR.exists():
+        for folder in CHECKPOINT_DIR.iterdir():
+            if not folder.is_dir() or folder.name.startswith('.'):
+                continue
+            chat_data_dir = folder / "chat-data"
+            if not chat_data_dir.exists():
+                continue
+            for json_file in chat_data_dir.iterdir():
+                if json_file.suffix == '.json' and not json_file.name.startswith('.'):
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            if 'model' in data:
+                                session = data.get('session', '')
+                                models.append({
+                                    'model': data['model'],
+                                    'session': session,
+                                    'created_at': data.get('created_at', ''),
+                                    'params': data.get('params', {})
+                                })
+                    except (json.JSONDecodeError, IOError):
+                        continue
+
+    # 从 base_models 读取对话
+    base_chat_data_dir = BASE_MODELS_DIR / "chat-data"
+    if base_chat_data_dir.exists():
+        for json_file in base_chat_data_dir.iterdir():
             if json_file.suffix == '.json' and not json_file.name.startswith('.'):
                 try:
                     with open(json_file, 'r', encoding='utf-8') as f:
@@ -385,12 +418,13 @@ def get_chat_model_list() -> List[Dict[str, Any]]:
                             })
                 except (json.JSONDecodeError, IOError):
                     continue
+
     models.sort(key=lambda x: x['created_at'], reverse=True)
     return models
 
 
 def delete_chat_data(folder: str, model_name: str, session: str = '') -> bool:
-    chat_data_dir = CHECKPOINT_DIR / folder / "chat-data"
+    chat_data_dir = _get_chat_data_dir(folder)
     if session:
         file_name = f"{model_name}-{session}-data.json"
     else:
