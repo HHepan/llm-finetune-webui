@@ -135,7 +135,7 @@ async def chat(request: ChatRequest):
                 ChatMessage(role="user", content=request.message),
                 ChatMessage(role="assistant", content=full_response)
             ]
-            dialogue_content = [{"role": m.role, "content": m.content} for m in all_messages]
+            dialogue_content = [{"role": m.role, "content": m.content} for m in all_messages if m.role != "system"]
             try:
                 file_service.update_dialogue_content(folder, model_file_without_ext, session, dialogue_content)
                 print(f"[CHAT API] Dialogue saved to chat-data file")
