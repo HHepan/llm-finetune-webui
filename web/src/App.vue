@@ -32,14 +32,14 @@
           <span>对话测试</span>
         </el-menu-item>
       </el-menu>
+      <div class="aside-footer">
+        <a href="/m/data" class="mobile-link">📱 手机版</a>
+      </div>
     </el-aside>
 
     <el-container>
       <el-header class="header">
         <span class="header-title">{{ $route.meta.title }}</span>
-        <div style="margin-left: auto;">
-          <a href="/m/data" style="color: #409eff; text-decoration: none; font-size: 13px;">📱 手机版</a>
-        </div>
       </el-header>
 
       <el-main class="main-content">
@@ -92,6 +92,23 @@ body, html {
 
 .el-menu-vertical {
   border-right: none;
+  flex: 1;
+}
+
+.aside-footer {
+  padding: 8px 16px;
+}
+
+.mobile-link {
+  color: #95a5a6;
+  text-decoration: none;
+  font-size: 12px;
+  padding: 2px 0;
+  transition: color 0.2s;
+}
+
+.mobile-link:hover {
+  color: #409eff;
 }
 
 .header {
