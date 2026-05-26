@@ -16,7 +16,15 @@
         </el-option>
       </el-select>
       <el-select v-model="selectedRole" placeholder="选择角色" size="small" @change="onRoleChange" :disabled="isModelLoading">
-        <el-option v-for="role in roleList" :key="role.id" :label="role.name" :value="role.id" />
+        <el-option v-for="role in roleList" :key="role.id" :value="role.id" :label="role.name">
+          <span style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+            <span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ role.name }}</span>
+            <span v-if="role.id !== 'none'" style="display:flex;gap:4px;flex-shrink:0;">
+              <el-button type="primary" size="small" link @mousedown.prevent="handleEditRole(role)" style="font-size:12px;padding:0 4px;">编辑</el-button>
+              <el-button type="danger" size="small" link @mousedown.prevent="confirmDeleteRole(role)" style="font-size:12px;padding:0 4px;">删除</el-button>
+            </span>
+          </span>
+        </el-option>
       </el-select>
     </div>
 
@@ -472,6 +480,32 @@ const confirmRole = async () => {
   } catch { ElMessage.error('操作失败') }
 }
 
+const handleEditRole = (role) => {
+  editingRole.value = role
+  isEditingRole.value = true
+  roleForm.name = role.name
+  roleForm.content = role.content
+  showRoleDialog.value = true
+}
+
+const confirmDeleteRole = async (role) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除角色 "${role.name}" 吗？`, '删除确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await axios.delete(`/api/data/roles/${role.id}`)
+    roleList.value = roleList.value.filter(r => r.id !== role.id)
+    if (selectedRole.value === role.id) {
+      selectedRole.value = 'none'
+    }
+    ElMessage.success('角色已删除')
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('删除失败')
+  }
+}
+
 // ==== 对话 ====
 const handleEnter = (e) => {
   if (e.shiftKey) return
@@ -668,6 +702,29 @@ onUnmounted(() => {
 
 .m-chat-selectbar .el-select {
   width: 100%;
+}
+
+/* 角色选项行 */
+.m-role-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.m-role-label {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-role-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.m-role-btns .el-button {
+  font-size: 12px;
+  padding: 0 4px;
 }
 
 /* 消息区 */
