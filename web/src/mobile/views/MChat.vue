@@ -1,8 +1,8 @@
 <template>
   <div class="m-chat-page">
-    <!-- 顶部选择栏：选择对话 + 选择角色 -->
+    <!-- 顶部选择栏 -->
     <div class="m-chat-selectbar">
-      <el-select v-model="selectedModel" placeholder="选择对话" size="small" @change="onModelSelect" style="flex:1;min-width:0;">
+      <el-select v-model="selectedModel" placeholder="选择对话" size="small" @change="onModelSelect">
         <el-option
           v-for="item in modelList"
           :key="item.model + '|' + item.session"
@@ -15,7 +15,7 @@
           </div>
         </el-option>
       </el-select>
-      <el-select v-model="selectedRole" placeholder="选择角色" size="small" @change="onRoleChange" :disabled="isModelLoading" style="width:130px;flex-shrink:0;">
+      <el-select v-model="selectedRole" placeholder="选择角色" size="small" @change="onRoleChange" :disabled="isModelLoading">
         <el-option v-for="role in roleList" :key="role.id" :label="role.name" :value="role.id" />
       </el-select>
     </div>
@@ -47,48 +47,53 @@
     <!-- 操作按钮组 -->
     <div class="m-chat-toolbar">
       <div class="toolbar-row">
-        <el-button size="small" type="success" plain @click="showNewChat = true" :disabled="isModelLoading">
-          新建对话
+        <el-button size="small" plain @click="showNewChat = true" :disabled="isModelLoading">
+          <template #icon><span class="btn-icon">+</span></template>
+          新建
         </el-button>
-        <el-button size="small" type="warning" plain @click="clearHistory" :disabled="!selectedModel">
-          清空对话记录
+        <el-button size="small" plain @click="clearHistory" :disabled="!selectedModel">
+          清空
         </el-button>
         <el-button size="small" :type="showParams ? 'primary' : 'default'" plain @click="showParams = !showParams">
-          设置参数
+          参数
         </el-button>
-        <el-button size="small" type="info" plain @click="openRoleDialog">
-          添加角色
+        <el-button size="small" plain @click="openRoleDialog">
+          角色
         </el-button>
-      </div>
-      <div class="toolbar-row">
-        <el-button size="small" type="primary" plain @click="regenerateLastMessage" :disabled="!canRegenerate">重新生成</el-button>
-        <el-button size="small" type="warning" plain @click="reEditLastMessage" :disabled="!canReEdit">重新编辑</el-button>
-        <span v-if="isModelLoading" class="m-model-status loading">⏳ 加载中...</span>
+        <el-button size="small" plain @click="regenerateLastMessage" :disabled="!canRegenerate">重生成</el-button>
+        <el-button size="small" plain @click="reEditLastMessage" :disabled="!canReEdit">改提问</el-button>
+        <span v-if="isModelLoading" class="m-model-status loading"><span class="m-spinner m-spinner--inline"></span>加载中...</span>
         <span v-else-if="modelLoadError" class="m-model-status error">❌ 加载失败</span>
-        <span v-else-if="isModelLoaded && selectedModel" class="m-model-status ready">✅ 就绪</span>
+        <span v-else-if="isModelLoaded && selectedModel" class="m-model-status ready">● 就绪</span>
       </div>
     </div>
 
     <!-- 输入区 -->
     <div class="m-chat-input">
-      <el-input
-        v-model="userInput"
-        type="textarea"
-        :rows="2"
-        placeholder="输入消息..."
-        @keydown.enter="handleEnter"
-        :disabled="isModelLoading"
-        resize="none"
-        class="m-chat-textarea"
-      />
-      <el-button
-        type="primary"
-        :disabled="!userInput.trim() || !selectedModel || isModelLoading"
-        @click="sendMessage"
-        class="m-chat-send-btn"
-      >
-        发送
-      </el-button>
+      <div class="m-chat-input-inner">
+        <el-input
+          v-model="userInput"
+          type="textarea"
+          :rows="1"
+          placeholder="输入消息..."
+          @keydown.enter="handleEnter"
+          :disabled="isModelLoading"
+          resize="none"
+          class="m-chat-textarea"
+          autosize
+        />
+        <button
+          class="m-chat-send-btn"
+          :class="{ active: userInput.trim() && selectedModel && !isModelLoading }"
+          :disabled="!userInput.trim() || !selectedModel || isModelLoading"
+          @click="sendMessage"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- ====== 新建对话弹窗 ====== -->
@@ -98,7 +103,7 @@
           <span>新建对话</span>
           <span class="m-modal-close" @click="showNewChat = false">&times;</span>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
           <el-select v-model="newChatFolder" placeholder="文件夹" size="small" style="flex:1;min-width:80px;" @change="onNewChatFolderChange">
             <el-option v-for="f in folderList" :key="f" :label="f" :value="f" />
           </el-select>
@@ -106,9 +111,9 @@
             <el-option v-for="m in modelFileList" :key="m" :label="m" :value="m" />
           </el-select>
         </div>
-        <div style="display:flex;gap:6px;">
+        <div style="display:flex;gap:8px;">
           <el-input v-model="newChatSession" placeholder="对话名称" size="small" style="flex:1;" />
-          <el-button size="small" type="success" @click="confirmNewChat" :disabled="!newChatFolder || !newChatModel || !newChatSession">创建</el-button>
+          <el-button size="small" type="primary" @click="confirmNewChat" :disabled="!newChatFolder || !newChatModel || !newChatSession">创建</el-button>
         </div>
       </div>
     </div>
@@ -120,12 +125,12 @@
           <span>{{ isEditingRole ? '编辑角色' : '新建角色' }}</span>
           <span class="m-modal-close" @click="closeRoleDialog">&times;</span>
         </div>
-        <div style="margin-bottom:8px;">
-          <div style="font-size:12px;color:#666;margin-bottom:4px;">角色名称</div>
+        <div style="margin-bottom:10px;">
+          <div class="m-field-label">角色名称</div>
           <el-input v-model="roleForm.name" placeholder="名称" size="small" />
         </div>
-        <div style="margin-bottom:12px;">
-          <div style="font-size:12px;color:#666;margin-bottom:4px;">角色设定</div>
+        <div style="margin-bottom:16px;">
+          <div class="m-field-label">角色设定</div>
           <el-input v-model="roleForm.content" type="textarea" :rows="6" placeholder="角色设定描述..." size="small" />
         </div>
         <div style="display:flex;gap:10px;">
@@ -137,9 +142,9 @@
       </div>
     </div>
 
-    <!-- ====== 推理参数面板（底部弹出） ====== -->
+    <!-- ====== 推理参数面板 ====== -->
     <div v-if="showParams" class="m-modal-overlay" @click.self="showParams = false">
-      <div class="m-modal-content" style="max-height:70vh;">
+      <div class="m-modal-content" style="max-height:75vh;">
         <div class="m-modal-header">
           <span>推理参数</span>
           <div style="display:flex;gap:8px;align-items:center;">
@@ -148,52 +153,52 @@
           </div>
         </div>
         <el-form :model="inferParams" label-width="0">
-          <div style="margin-bottom:12px;">
-            <div style="font-size:12px;color:#666;margin-bottom:4px;">
+          <div class="m-param-item">
+            <div class="m-param-label">
               temperature
-              <span style="float:right;">{{ inferParams.temperature.toFixed(2) }}</span>
+              <span class="m-param-value">{{ inferParams.temperature.toFixed(2) }}</span>
             </div>
             <el-slider v-model="inferParams.temperature" :min="0" :max="2" :step="0.01" size="small" />
           </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:12px;color:#666;margin-bottom:4px;">
+          <div class="m-param-item">
+            <div class="m-param-label">
               top_p
-              <span style="float:right;">{{ inferParams.top_p.toFixed(2) }}</span>
+              <span class="m-param-value">{{ inferParams.top_p.toFixed(2) }}</span>
             </div>
             <el-slider v-model="inferParams.top_p" :min="0" :max="1" :step="0.01" size="small" />
           </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:12px;color:#666;margin-bottom:4px;">
+          <div class="m-param-item">
+            <div class="m-param-label">
               alpha_frequency
-              <span style="float:right;">{{ inferParams.alpha_frequency.toFixed(2) }}</span>
+              <span class="m-param-value">{{ inferParams.alpha_frequency.toFixed(2) }}</span>
             </div>
             <el-slider v-model="inferParams.alpha_frequency" :min="0" :max="1" :step="0.01" size="small" />
           </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:12px;color:#666;margin-bottom:4px;">
+          <div class="m-param-item">
+            <div class="m-param-label">
               alpha_presence
-              <span style="float:right;">{{ inferParams.alpha_presence.toFixed(2) }}</span>
+              <span class="m-param-value">{{ inferParams.alpha_presence.toFixed(2) }}</span>
             </div>
             <el-slider v-model="inferParams.alpha_presence" :min="0" :max="1" :step="0.01" size="small" />
           </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:12px;color:#666;margin-bottom:4px;">
+          <div class="m-param-item">
+            <div class="m-param-label">
               alpha_decay
-              <span style="float:right;">{{ inferParams.alpha_decay.toFixed(3) }}</span>
+              <span class="m-param-value">{{ inferParams.alpha_decay.toFixed(3) }}</span>
             </div>
             <el-slider v-model="inferParams.alpha_decay" :min="0" :max="1" :step="0.001" size="small" />
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">
             <div>
-              <div style="font-size:12px;color:#666;margin-bottom:4px;">max_tokens</div>
+              <div class="m-param-label">max_tokens</div>
               <el-input-number v-model="inferParams.max_tokens" :min="1" :max="4096" size="small" style="width:100%;" />
             </div>
             <div>
-              <div style="font-size:12px;color:#666;margin-bottom:4px;">top_k</div>
+              <div class="m-param-label">top_k</div>
               <el-input-number v-model="inferParams.top_k" :min="0" :max="200" size="small" style="width:100%;" />
             </div>
             <div>
-              <div style="font-size:12px;color:#666;margin-bottom:4px;">clean_rounds</div>
+              <div class="m-param-label">clean_rounds</div>
               <el-input-number v-model="inferParams.clean_rounds" :min="1" :max="100" size="small" style="width:100%;" />
             </div>
           </div>
@@ -654,33 +659,39 @@ onUnmounted(() => {
 
 /* 顶部选择栏 */
 .m-chat-selectbar {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 0;
-  flex-shrink: 0;
+  gap: 8px;
+  padding: 6px 0 10px;
 }
 
 .m-chat-selectbar .el-select {
   width: 100%;
 }
 
-/* 消息区 - 可滚动 */
+/* 消息区 */
 .m-chat-messages {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 8px 4px;
+  padding: 4px 2px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 /* 单条消息 */
 .m-chat-msg {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   max-width: 92%;
+  animation: msgIn 0.25s ease;
+}
+
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .m-chat-msg.assistant {
@@ -697,31 +708,42 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #f0f0f0;
+  background: var(--c-border-light);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .m-chat-msg.user .m-chat-avatar {
-  background: #e6f7ff;
+  background: var(--c-primary-soft);
 }
 
+.m-chat-msg.assistant .m-chat-avatar {
+  background: linear-gradient(135deg, var(--c-primary-soft), #f0f0ff);
+}
+
+/* 气泡 */
 .m-chat-bubble {
-  background: #fff;
-  border-radius: 12px;
-  padding: 10px 14px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  padding: 11px 15px;
   font-size: 14px;
-  line-height: 1.6;
-  color: #333;
+  line-height: 1.65;
   word-break: break-word;
   min-width: 40px;
 }
 
+.m-chat-msg.assistant .m-chat-bubble {
+  background: var(--c-surface);
+  border-radius: 6px var(--radius-md) var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--c-border-light);
+  color: var(--c-text-primary);
+}
+
 .m-chat-msg.user .m-chat-bubble {
-  background: #409eff;
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-light));
+  border-radius: var(--radius-md) 6px var(--radius-md) var(--radius-md);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
   color: #fff;
 }
 
@@ -729,8 +751,10 @@ onUnmounted(() => {
   white-space: pre-wrap;
 }
 
-.cursor {
+.m-cursor {
   animation: blink 1s step-end infinite;
+  color: var(--c-primary);
+  font-weight: 300;
 }
 
 @keyframes blink {
@@ -738,7 +762,7 @@ onUnmounted(() => {
 }
 
 .m-thinking {
-  color: #999;
+  color: var(--c-text-muted);
   font-size: 13px;
   font-style: italic;
 }
@@ -746,10 +770,7 @@ onUnmounted(() => {
 /* 工具栏 */
 .m-chat-toolbar {
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 0;
+  padding: 8px 0 4px;
 }
 
 .toolbar-row {
@@ -761,25 +782,62 @@ onUnmounted(() => {
 
 .toolbar-row .el-button {
   flex-shrink: 0;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border-color: var(--c-border);
+  color: var(--c-text-secondary);
+  --el-button-hover-bg-color: var(--c-primary-soft);
+  --el-button-hover-border-color: var(--c-primary-light);
+  --el-button-hover-text-color: var(--c-primary);
+}
+
+.toolbar-row .el-button.is-plain {
+  background: var(--c-surface);
+}
+
+.toolbar-row .el-button.el-button--primary {
+  border-color: var(--c-primary-light);
+  color: var(--c-primary);
+  background: var(--c-primary-soft);
+}
+
+.btn-icon {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .m-model-status {
   font-size: 12px;
-  margin-right: 4px;
+  margin-left: 4px;
   white-space: nowrap;
+  font-weight: 500;
 }
-.m-model-status.loading { color: #e6a23c; }
-.m-model-status.error { color: #f56c6c; }
-.m-model-status.ready { color: #67c23a; }
+.m-model-status.loading { color: var(--c-warning); }
+.m-model-status.error { color: var(--c-danger); }
+.m-model-status.ready { color: var(--c-success); }
 
 /* 输入区 */
 .m-chat-input {
   flex-shrink: 0;
+  padding-top: 8px;
+}
+
+.m-chat-input-inner {
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  padding-top: 8px;
-  border-top: 1px solid #eee;
+  background: var(--c-surface);
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: 6px 6px 6px 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.m-chat-input-inner:focus-within {
+  border-color: var(--c-primary-light);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
 }
 
 .m-chat-textarea {
@@ -787,17 +845,77 @@ onUnmounted(() => {
 }
 
 .m-chat-textarea :deep(.el-textarea__inner) {
-  border-radius: 10px;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 4px 0;
   font-size: 14px;
-  line-height: 1.4;
-  min-height: 44px;
+  line-height: 1.5;
+  min-height: 24px;
+  max-height: 120px;
+  background: transparent;
+  resize: none;
+}
+
+.m-chat-textarea :deep(.el-textarea__inner:focus) {
+  box-shadow: none !important;
 }
 
 .m-chat-send-btn {
-  height: 44px;
   flex-shrink: 0;
-  padding: 0 20px;
-  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--c-border-light);
+  color: var(--c-text-muted);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.m-chat-send-btn.active {
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-light));
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.m-chat-send-btn:active.active {
+  transform: scale(0.92);
+}
+
+.m-chat-send-btn:disabled {
+  cursor: not-allowed;
+}
+
+/* 字段标签 */
+.m-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  margin-bottom: 6px;
+}
+
+/* 参数项 */
+.m-param-item {
+  margin-bottom: 14px;
+}
+
+.m-param-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  margin-bottom: 6px;
+}
+
+.m-param-value {
+  font-weight: 600;
+  color: var(--c-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 消息里的 br 保留间距 */

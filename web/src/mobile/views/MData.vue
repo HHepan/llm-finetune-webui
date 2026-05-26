@@ -1,6 +1,6 @@
 <template>
   <div class="m-data-page">
-    <!-- 文件夹选择 + 文件选择 + 筛选 三合一操作栏 -->
+    <!-- 操作栏 -->
     <div class="m-actions">
       <el-select v-model="selectedFolder" placeholder="选择文件夹" size="small" @change="onFolderChange">
         <el-option v-for="item in folderList" :key="item" :label="item" :value="item" />
@@ -8,7 +8,7 @@
       <el-select v-model="selectedFile" placeholder="选择数据集" size="small" @change="selectFile">
         <el-option v-for="item in fileList" :key="item" :label="item" :value="item" />
       </el-select>
-      <el-select v-model="roundsFilter" placeholder="筛选" size="small" style="max-width: 100px;" @change="onFilterChange">
+      <el-select v-model="roundsFilter" placeholder="筛选" size="small" style="max-width: 90px;" @change="onFilterChange">
         <el-option label="全部" value="all" />
         <el-option label="单轮" value="single" />
         <el-option label="多轮" value="multi" />
@@ -17,8 +17,8 @@
 
     <!-- 数据加载中 -->
     <div v-if="loading" class="m-empty">
-      <div class="m-empty-icon">⏳</div>
-      <span>加载中...</span>
+      <div class="m-spinner m-spinner--lg"></div>
+      <span style="margin-top:6px;">加载中...</span>
     </div>
 
     <!-- 空状态 -->
@@ -40,7 +40,7 @@
         class="m-list-item"
       >
         <div class="m-list-item-header">
-          <span>#{{ row.id }}</span>
+          <span class="m-id-badge">#{{ row.id }}</span>
           <span :class="['m-tag', row.rounds > 1 ? 'm-tag-warning' : 'm-tag-info']">
             {{ row.rounds }}轮
           </span>
@@ -50,21 +50,21 @@
             v-for="(msg, idx) in row.conversations.slice(0, 4)"
             :key="idx"
             class="conv-line"
-            :style="{ color: msg.role === 'user' ? '#409eff' : '#52c41a', fontSize: '13px', marginBottom: '4px' }"
+            :class="msg.role"
           >
-            <strong>{{ msg.role === 'user' ? 'U' : 'A' }}:</strong>
-            <span style="color:#555">{{ truncate(msg.content, 60) }}</span>
+            <span class="conv-role">{{ msg.role === 'user' ? 'U' : 'A' }}</span>
+            <span class="conv-text">{{ truncate(msg.content, 60) }}</span>
           </div>
-          <div v-if="row.conversations.length > 4" style="color:#999;font-size:12px;margin-top:4px;">
-            ... 还有 {{ row.conversations.length - 4 }} 条消息
+          <div v-if="row.conversations.length > 4" class="conv-more">
+            还有 {{ row.conversations.length - 4 }} 条消息
           </div>
         </div>
         <div class="m-list-item-footer">
-          <el-button size="small" type="primary" plain @click="viewDetail(row)">查看</el-button>
+          <el-button size="small" plain @click="viewDetail(row)">查看详情</el-button>
         </div>
       </div>
 
-      <!-- 简化分页 -->
+      <!-- 分页 -->
       <div class="m-pager">
         <button :disabled="currentPage <= 1" @click="prevPage">上一页</button>
         <span>{{ currentPage }} / {{ totalPages }}</span>
@@ -72,7 +72,7 @@
       </div>
     </template>
 
-    <!-- ====== 数据详情弹窗（查看模式） ====== -->
+    <!-- ====== 数据详情弹窗 ====== -->
     <div v-if="showDetail" class="m-modal-overlay" @click.self="showDetail = false">
       <div class="m-modal-content">
         <div class="m-modal-header">
@@ -82,13 +82,13 @@
         <div
           v-for="(msg, idx) in detailForm.conversations"
           :key="idx"
-          style="margin-bottom: 10px;"
+          class="detail-msg-block"
         >
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <div class="detail-msg-meta">
             <span :class="['m-tag', msg.role === 'user' ? 'm-tag-info' : 'm-tag-success']">
               {{ msg.role === 'user' ? 'User' : 'Assistant' }}
             </span>
-            <span style="font-size:12px;color:#999;">第{{ Math.floor(idx / 2) + 1 }}轮</span>
+            <span class="detail-round">第{{ Math.floor(idx / 2) + 1 }}轮</span>
           </div>
           <el-input
             :model-value="msg.content"
@@ -96,6 +96,7 @@
             :rows="2"
             size="small"
             disabled
+            class="detail-msg-input"
           />
         </div>
       </div>
@@ -210,9 +211,106 @@ onMounted(loadFolderList)
 .m-data-page {
   padding-bottom: 8px;
 }
+
+/* ID 徽标 */
+.m-id-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  background: var(--c-border-light);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+/* 对话行 */
 .conv-line {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--c-bg);
+}
+
+.conv-line.user {
+  border-left: 2px solid var(--c-primary-light);
+}
+
+.conv-line.assistant {
+  border-left: 2px solid var(--c-success);
+}
+
+.conv-role {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 11px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  margin-top: 1px;
+}
+
+.conv-line.user .conv-role {
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+}
+
+.conv-line.assistant .conv-role {
+  background: var(--c-success-soft);
+  color: var(--c-success);
+}
+
+.conv-text {
+  color: var(--c-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.conv-more {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  margin-top: 6px;
+  padding-left: 8px;
+  font-style: italic;
+}
+
+/* 详情弹窗内的对话块 */
+.detail-msg-block {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border-light);
+}
+
+.detail-msg-block:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.detail-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.detail-round {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  font-weight: 500;
+}
+
+.detail-msg-input :deep(.el-textarea__inner) {
+  background: var(--c-bg);
+  border-color: transparent;
+  color: var(--c-text-primary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 </style>
