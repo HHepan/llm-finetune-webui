@@ -13,7 +13,7 @@ sys.path.append("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/too
 from rwkv_tokenizer import RWKV_TOKENIZER
 
 import torch
-from rwkv.model import RWKV
+from .rwkv_x070_dual import RWKV_x070_Dual
 from rwkv.utils import PIPELINE, PIPELINE_ARGS
 
 CHECKPOINT_DIR = Path("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints")
@@ -71,7 +71,10 @@ class RWKVInferenceManager:
             self.unload_model()
 
         print("[RWKV] Loading RWKV model...")
-        self.model = RWKV(model=model_path, strategy='cuda fp16')
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        self.model = RWKV_x070_Dual(model=model_path, strategy='cuda:0 fp16 -> cuda:1 fp16')
 
         print("[RWKV] Loading tokenizer...")
         self.tokenizer = RWKV_TOKENIZER(VOCAB_PATH)
