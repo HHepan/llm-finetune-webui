@@ -802,7 +802,7 @@ onUnmounted(() => {
 }
 
 .m-chat-msg.assistant .m-chat-avatar {
-  background: linear-gradient(135deg, var(--c-primary-soft), #f0f0ff);
+  background: linear-gradient(135deg, var(--c-primary-soft), var(--c-avatar-assistant-bg));
 }
 
 /* 气泡 */
@@ -1103,7 +1103,7 @@ onUnmounted(() => {
   width: 6px;
 }
 .m-chat-page .m-modal-content::-webkit-scrollbar-thumb {
-  background: #ccc;
+  background: var(--c-scrollbar-thumb);
   border-radius: 3px;
 }
 </style>
