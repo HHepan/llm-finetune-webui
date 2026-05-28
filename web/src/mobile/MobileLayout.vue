@@ -9,6 +9,12 @@
         </div>
       </div>
       <div class="m-header-accent"></div>
+      <div class="m-header-right">
+        <button class="m-theme-toggle" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'">
+          <span v-if="isDark">☀️</span>
+          <span v-else>🌙</span>
+        </button>
+      </div>
     </div>
 
     <!-- 内容区 -->
@@ -35,6 +41,24 @@
 
 <script setup>
 import { useRouter, useRoute } from 'vue-router'
+import { ref, onMounted } from 'vue'
+
+const isDark = ref(false)
+
+const applyTheme = (dark) => {
+  isDark.value = dark
+  document.documentElement.dataset.theme = dark ? 'dark' : ''
+  try { localStorage.setItem('m-theme', dark ? 'dark' : 'light') } catch {}
+}
+
+const toggleTheme = () => applyTheme(!isDark.value)
+
+onMounted(() => {
+  try {
+    const saved = localStorage.getItem('m-theme')
+    if (saved === 'dark') applyTheme(true)
+  } catch {}
+})
 
 const router = useRouter()
 const route = useRoute()
@@ -81,6 +105,90 @@ const goTab = (path) => {
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 20px;
+  --c-tabbar-bg: rgba(255, 255, 255, 0.85);
+  --c-overlay-bg: rgba(15, 23, 42, 0.4);
+  --c-scrollbar-thumb: #ccc;
+  --c-avatar-assistant-bg: #f0f0ff;
+}
+
+/* ========== 暗色主题 ========== */
+[data-theme="dark"] {
+  --c-bg: #0d1117;
+  --c-surface: #161b22;
+  --c-text-primary: #e6edf3;
+  --c-text-secondary: #8b949e;
+  --c-text-muted: #6e7681;
+  --c-border: #30363d;
+  --c-border-light: #21262d;
+  --c-primary-soft: rgba(99, 102, 241, 0.2);
+  --c-primary-bg: rgba(99, 102, 241, 0.12);
+  --c-success-soft: rgba(16, 185, 129, 0.2);
+  --c-warning-soft: rgba(245, 158, 11, 0.2);
+  --c-danger-soft: rgba(255, 77, 77, 0.2);
+  --c-tabbar-bg: rgba(22, 27, 34, 0.88);
+  --c-overlay-bg: rgba(0, 0, 0, 0.6);
+  --c-scrollbar-thumb: #404854;
+  --c-avatar-assistant-bg: var(--c-primary-soft);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6), 0 4px 8px rgba(0, 0, 0, 0.4);
+
+  /* ===== Element Plus 组件暗色覆盖 ===== */
+  --el-bg-color: #141414;
+  --el-bg-color-overlay: #1d1e1f;
+  --el-text-color-primary: #e5eaf3;
+  --el-text-color-regular: #cfd3dc;
+  --el-text-color-secondary: #a3a6ad;
+  --el-text-color-placeholder: #8d9095;
+  --el-border-color: #4c4d4f;
+  --el-border-color-light: #363637;
+  --el-border-color-lighter: #2b2b2c;
+  --el-border-color-extra-light: #1d1d1d;
+  --el-fill-color: #303030;
+  --el-fill-color-light: #262727;
+  --el-fill-color-lighter: #1d1d1d;
+  --el-fill-color-extra-light: #191919;
+  --el-fill-color-blank: #1d1e1f;
+  --el-mask-color: rgba(0, 0, 0, 0.8);
+  --el-color-white: #1d1e1f;
+
+  /* 输入框 */
+  --el-input-bg-color: #1d1e1f;
+  --el-input-border-color: #4c4d4f;
+  --el-input-hover-border-color: var(--c-primary-light);
+  --el-input-focus-border-color: var(--c-primary);
+  --el-input-text-color: #e5eaf3;
+  --el-input-placeholder-color: #8d9095;
+  --el-input-icon-color: #8d9095;
+
+  /* 下拉选择器 */
+  --el-select-dropdown-bg-color: #1d1e1f;
+  --el-select-dropdown-border-color: #363637;
+  --el-select-option-hover-bg-color: #262727;
+  --el-select-option-selected-bg-color: rgba(99, 102, 241, 0.15);
+  --el-select-option-selected-text-color: var(--c-primary-light);
+
+  /* 数字输入框 */
+  --el-input-number-controls-bg-color: #262727;
+
+  /* 按钮 */
+  --el-button-bg-color: #262727;
+  --el-button-border-color: #4c4d4f;
+  --el-button-hover-bg-color: #303030;
+  --el-button-hover-border-color: #63636f;
+  --el-button-text-color: #cfd3dc;
+
+  /* 进度条 */
+  --el-progress-border-radius: 4px;
+
+  /* 滑块 */
+  --el-slider-runway-bg-color: #30363d;
+  --el-slider-button-bg-color: #1d1e1f;
+  --el-slider-stop-bg-color: #4c4d4f;
+
+  /* 卡片 */
+  --el-card-bg-color: var(--c-surface);
+  --el-card-border-color: var(--c-border-light);
 }
 
 /* ========== 全局重置 ========== */
@@ -153,6 +261,35 @@ html, body {
   letter-spacing: 0.3px;
 }
 
+.m-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1;
+}
+
+.m-theme-toggle {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--c-primary-bg);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  transition: all 0.25s ease;
+  color: var(--c-primary);
+}
+
+.m-theme-toggle:active {
+  transform: scale(0.88);
+  background: var(--c-primary-soft);
+}
+
 .m-desktop-link {
   color: var(--c-text-muted);
   text-decoration: none;
@@ -186,10 +323,10 @@ html, body {
   display: flex;
   align-items: center;
   height: 56px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--c-tabbar-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(233, 237, 242, 0.8);
+  border-top: 1px solid var(--c-border);
   padding-bottom: env(safe-area-inset-bottom, 0);
   z-index: 10;
   position: relative;
@@ -428,7 +565,7 @@ html, body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--c-overlay-bg);
   z-index: 1000;
   display: flex;
   flex-direction: column;
