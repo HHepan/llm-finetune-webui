@@ -8,9 +8,6 @@
           <span class="m-header-title">{{ $route.meta?.title || 'LLM WebUI' }}</span>
         </div>
       </div>
-      <div class="m-header-right">
-        <a href="/data" class="m-desktop-link">桌面版</a>
-      </div>
       <div class="m-header-accent"></div>
     </div>
 
@@ -449,7 +446,7 @@ html, body {
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   max-height: 85vh;
   overflow-y: auto;
-  padding: 20px 20px;
+  padding: 0 20px 20px;
   padding-bottom: calc(20px + env(safe-area-inset-bottom, 0));
   animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -460,10 +457,14 @@ html, body {
 }
 
 .m-modal-header {
+position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--c-surface);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  padding: 20px 0 16px;
   font-size: 16px;
   font-weight: 600;
   color: var(--c-text-primary);
