@@ -1,6 +1,11 @@
 <template>
+  <!-- 着陆页路由：直接渲染，不加任何布局 -->
+  <template v-if="isLanding">
+    <router-view />
+  </template>
+
   <!-- 移动端路由：直接渲染，不要侧边栏 -->
-  <template v-if="isMobileRoute">
+  <template v-else-if="isMobileRoute">
     <router-view />
   </template>
 
@@ -32,9 +37,6 @@
           <span>对话测试</span>
         </el-menu-item>
       </el-menu>
-      <div class="aside-footer">
-        <a href="/m/data" class="mobile-link">📱 手机版</a>
-      </div>
     </el-aside>
 
     <el-container>
@@ -55,6 +57,7 @@ import { useRoute } from 'vue-router'
 import { Document, Cpu, ChatDotRound } from '@element-plus/icons-vue'
 
 const route = useRoute()
+const isLanding = computed(() => route.path === '/')
 const isMobileRoute = computed(() => route.path.startsWith('/m'))
 </script>
 
@@ -93,22 +96,6 @@ body, html {
 .el-menu-vertical {
   border-right: none;
   flex: 1;
-}
-
-.aside-footer {
-  padding: 8px 16px;
-}
-
-.mobile-link {
-  color: #95a5a6;
-  text-decoration: none;
-  font-size: 12px;
-  padding: 2px 0;
-  transition: color 0.2s;
-}
-
-.mobile-link:hover {
-  color: #409eff;
 }
 
 .header {

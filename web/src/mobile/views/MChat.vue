@@ -2,7 +2,7 @@
   <div class="m-chat-page">
     <!-- 顶部选择栏 -->
     <div class="m-chat-selectbar">
-      <el-select v-model="selectedModel" placeholder="选择对话" size="small" @change="onModelSelect">
+      <el-select v-model="selectedModel" placeholder="选择对话" size="small" popper-class="m-select-popper" @change="onModelSelect">
         <el-option
           v-for="item in modelList"
           :key="item.model + '|' + item.session"
@@ -10,15 +10,15 @@
           :value="item.model + '|' + item.session"
         >
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.model }}-{{ item.session }}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;">{{ item.model }}-{{ item.session }}</span>
             <el-button type="danger" size="small" link @click.stop="deleteSelectedChat(item)">删除</el-button>
           </div>
         </el-option>
       </el-select>
-      <el-select v-model="selectedRole" placeholder="选择角色" size="small" @change="onRoleChange" :disabled="isModelLoading">
+      <el-select v-model="selectedRole" placeholder="选择角色" size="small" popper-class="m-select-popper" @change="onRoleChange" :disabled="isModelLoading">
         <el-option v-for="role in roleList" :key="role.id" :value="role.id" :label="role.name">
           <span style="display:flex;justify-content:space-between;align-items:center;width:100%;">
-            <span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ role.name }}</span>
+            <span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;">{{ role.name }}</span>
             <span v-if="role.id !== 'none'" style="display:flex;gap:4px;flex-shrink:0;">
               <el-button type="primary" size="small" link @mousedown.prevent="handleEditRole(role)" style="font-size:12px;padding:0 4px;">编辑</el-button>
               <el-button type="danger" size="small" link @mousedown.prevent="confirmDeleteRole(role)" style="font-size:12px;padding:0 4px;">删除</el-button>
@@ -55,19 +55,7 @@
     <!-- 操作按钮组 -->
     <div class="m-chat-toolbar">
       <div class="toolbar-row">
-        <el-button size="small" plain @click="showNewChat = true" :disabled="isModelLoading">
-          <template #icon><span class="btn-icon">+</span></template>
-          新建
-        </el-button>
-        <el-button size="small" plain @click="clearHistory" :disabled="!selectedModel">
-          清空
-        </el-button>
-        <el-button size="small" :type="showParams ? 'primary' : 'default'" plain @click="showParams = !showParams">
-          参数
-        </el-button>
-        <el-button size="small" plain @click="openRoleDialog">
-          角色
-        </el-button>
+        <el-button size="small" plain @click="showMoreActions = true">更多操作</el-button>
         <el-button size="small" plain @click="regenerateLastMessage" :disabled="!canRegenerate">重生成</el-button>
         <el-button size="small" plain @click="reEditLastMessage" :disabled="!canReEdit">改提问</el-button>
         <span v-if="isModelLoading" class="m-model-status loading"><span class="m-spinner m-spinner--inline"></span>加载中...</span>
@@ -104,12 +92,46 @@
       </div>
     </div>
 
+    <!-- ====== 更多操作弹窗 ====== -->
+    <div v-if="showMoreActions" class="m-modal-overlay" @click.self="showMoreActions = false">
+      <div class="m-modal-content">
+        <div class="m-modal-header">
+          <span>更多操作</span>
+          <span class="m-modal-close" @click="showMoreActions = false">&times;</span>
+        </div>
+        <div class="m-more-actions-list">
+          <div class="m-more-action-item" @click="showNewChat = true; showMoreActions = false">
+            <span class="m-more-action-icon">+</span>
+            <span class="m-more-action-label">新建</span>
+          </div>
+          <div class="m-more-action-divider"></div>
+          <div class="m-more-action-item" @click="clearHistory(); showMoreActions = false">
+            <span class="m-more-action-icon">🗑</span>
+            <span class="m-more-action-label">清空</span>
+          </div>
+          <div class="m-more-action-divider"></div>
+          <div class="m-more-action-item" @click="showParams = true; showMoreActions = false">
+            <span class="m-more-action-icon">⚙</span>
+            <span class="m-more-action-label">参数</span>
+          </div>
+          <div class="m-more-action-divider"></div>
+          <div class="m-more-action-item" @click="openRoleDialog(); showMoreActions = false">
+            <span class="m-more-action-icon">🎭</span>
+            <span class="m-more-action-label">角色</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ====== 新建对话弹窗 ====== -->
     <div v-if="showNewChat" class="m-modal-overlay" @click.self="showNewChat = false">
       <div class="m-modal-content" style="max-height:70vh;">
         <div class="m-modal-header">
           <span>新建对话</span>
           <span class="m-modal-close" @click="showNewChat = false">&times;</span>
+        </div>
+        <div style="margin-bottom:12px;">
+          <el-input v-model="newChatSession" placeholder="对话名称" size="small" />
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
           <el-select v-model="newChatFolder" placeholder="文件夹" size="small" style="flex:1;min-width:80px;" @change="onNewChatFolderChange">
@@ -119,16 +141,13 @@
             <el-option v-for="m in modelFileList" :key="m" :label="m" :value="m" />
           </el-select>
         </div>
-        <div style="display:flex;gap:8px;">
-          <el-input v-model="newChatSession" placeholder="对话名称" size="small" style="flex:1;" />
-          <el-button size="small" type="primary" @click="confirmNewChat" :disabled="!newChatFolder || !newChatModel || !newChatSession">创建</el-button>
-        </div>
+        <el-button size="small" type="primary" style="width:100%;" @click="confirmNewChat" :disabled="!newChatFolder || !newChatModel || !newChatSession">创建</el-button>
       </div>
     </div>
 
     <!-- ====== 角色编辑弹窗 ====== -->
     <div v-if="showRoleDialog" class="m-modal-overlay" @click.self="closeRoleDialog">
-      <div class="m-modal-content">
+      <div class="m-modal-content" style="max-height:90vh;">
         <div class="m-modal-header">
           <span>{{ isEditingRole ? '编辑角色' : '新建角色' }}</span>
           <span class="m-modal-close" @click="closeRoleDialog">&times;</span>
@@ -139,20 +158,17 @@
         </div>
         <div style="margin-bottom:16px;">
           <div class="m-field-label">角色设定</div>
-          <el-input v-model="roleForm.content" type="textarea" :rows="6" placeholder="角色设定描述..." size="small" />
+          <el-input v-model="roleForm.content" type="textarea" :rows="18" placeholder="角色设定描述..." size="small" />
         </div>
-        <div style="display:flex;gap:10px;">
-          <el-button size="small" style="flex:1;" @click="closeRoleDialog">取消</el-button>
-          <el-button size="small" type="primary" style="flex:1;" @click="confirmRole" :disabled="!roleForm.name || !roleForm.content">
-            {{ isEditingRole ? '确认修改' : '确认添加' }}
-          </el-button>
-        </div>
+        <el-button size="small" type="primary" style="width:100%;" @click="confirmRole" :disabled="!roleForm.name || !roleForm.content">
+          {{ isEditingRole ? '确认修改' : '确认添加' }}
+        </el-button>
       </div>
     </div>
 
     <!-- ====== 推理参数面板 ====== -->
     <div v-if="showParams" class="m-modal-overlay" @click.self="showParams = false">
-      <div class="m-modal-content" style="max-height:75vh;">
+      <div class="m-modal-content" style="max-height:85vh;" @focusin="onParamsFocusIn" @focusout="onParamsFocusOut">
         <div class="m-modal-header">
           <span>推理参数</span>
           <div style="display:flex;gap:8px;align-items:center;">
@@ -164,10 +180,6 @@
           <div class="m-param-item">
             <div class="m-param-label">temperature</div>
             <el-input-number v-model="inferParams.temperature" :min="0" :max="2" :step="0.01" :precision="2" size="small" style="width:100%;" />
-          </div>
-          <div class="m-param-item">
-            <div class="m-param-label">top_p</div>
-            <el-input-number v-model="inferParams.top_p" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
           </div>
           <div class="m-param-item">
             <div class="m-param-label">alpha_frequency</div>
@@ -187,13 +199,21 @@
               <el-input-number v-model="inferParams.max_tokens" :min="1" :max="4096" size="small" style="width:100%;" />
             </div>
             <div>
-              <div class="m-param-label">top_k</div>
-              <el-input-number v-model="inferParams.top_k" :min="0" :max="200" size="small" style="width:100%;" />
-            </div>
-            <div>
               <div class="m-param-label">clean_rounds</div>
               <el-input-number v-model="inferParams.clean_rounds" :min="1" :max="100" size="small" style="width:100%;" />
             </div>
+            <div>
+              <div class="m-param-label">top_p</div>
+              <el-input-number v-model="inferParams.top_p" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
+            </div>
+            <div>
+              <div class="m-param-label">top_k</div>
+              <el-input-number v-model="inferParams.top_k" :min="0" :max="200" size="small" style="width:100%;" />
+            </div>
+          </div>
+          <div class="m-param-status">
+            <span v-if="isParamsSynced" class="m-param-status-ready">✓ 参数设置完成</span>
+            <span v-else class="m-param-status-loading">⏳ 参数设置中...</span>
           </div>
         </el-form>
       </div>
@@ -214,6 +234,7 @@ const userInput = ref('')
 const isModelLoading = ref(false)
 const isModelLoaded = ref(false)
 const modelLoadError = ref('')
+const isParamsSynced = ref(true)
 const isStreaming = ref(false)
 const isThinking = ref(false)
 const messagesRef = ref(null)
@@ -223,6 +244,7 @@ let displayInterval = null
 const showNewChat = ref(false)
 const showParams = ref(false)
 const showRoleDialog = ref(false)
+const showMoreActions = ref(false)
 
 // 新建对话
 const newChatFolder = ref('')
@@ -302,10 +324,12 @@ const onModelChange = async (value) => {
   }
   isModelLoading.value = true
   isModelLoaded.value = false
+  isParamsSynced.value = false
   modelLoadError.value = ''
   try {
     await axios.post('/api/chat/preload-model', null, { params: { model: modelPath } })
     isModelLoaded.value = true
+    isParamsSynced.value = true
   } catch (e) {
     modelLoadError.value = e.response?.data?.detail || '模型加载失败'
   } finally {
@@ -425,11 +449,19 @@ const loadRoleList = async () => {
 }
 
 const onRoleChange = (val) => {
-  if (val === 'none') Object.assign(inferParams, defaultParams)
-  else {
+  isParamsSynced.value = false
+  if (val === 'none') {
+    Object.assign(inferParams, defaultParams)
+    ElMessage.info('已切换为普通对话模式，推理参数已恢复默认')
+  } else {
     const role = roleList.value.find(r => r.id === val)
-    if (role) Object.assign(inferParams, roleplayParams)
+    if (role) {
+      Object.assign(inferParams, roleplayParams)
+      ElMessage.success(`已切换角色：${role.name}，推理参数已调整为角色扮演模式`)
+    }
   }
+  // 参数应用完毕后标记为就绪
+  nextTick(() => { isParamsSynced.value = true })
 }
 
 const openRoleDialog = () => {
@@ -656,6 +688,14 @@ const resetParams = () => {
   ElMessage.success('已重置')
 }
 
+// 参数弹窗：输入框获焦时滚动到可视区域，避免键盘遮挡
+const onParamsFocusIn = (e) => {
+  const target = e.target
+  setTimeout(() => {
+    target?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, 350)
+}
+
 onMounted(() => {
   loadModels()
   loadRoleList()
@@ -807,6 +847,52 @@ onUnmounted(() => {
   color: var(--c-text-muted);
   font-size: 13px;
   font-style: italic;
+}
+
+/* 更多操作弹窗列表 */
+.m-more-actions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.m-more-action-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 0 -20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.m-more-action-item:active {
+  background: var(--c-bg);
+}
+
+.m-more-action-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  background: var(--c-primary-bg);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.m-more-action-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text-primary);
+}
+
+.m-more-action-divider {
+  height: 1px;
+  background: var(--c-border-light);
+  margin: 0 -20px;
 }
 
 /* 工具栏 */
@@ -969,6 +1055,23 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+/* 参数状态提示 */
+.m-param-status {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.m-param-status-ready {
+  color: var(--c-success);
+  font-weight: 500;
+}
+
+.m-param-status-loading {
+  color: var(--c-text-muted);
+  font-weight: 500;
+}
+
 .m-param-label {
   display: flex;
   justify-content: space-between;
@@ -1002,5 +1105,17 @@ onUnmounted(() => {
 .m-chat-page .m-modal-content::-webkit-scrollbar-thumb {
   background: #ccc;
   border-radius: 3px;
+}
+</style>
+
+<!-- 移动端选择器下拉框：限制宽度不超出屏幕 -->
+<style>
+.m-select-popper {
+  max-width: calc(100vw - 24px) !important;
+}
+.m-select-popper .el-select-dropdown__item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
