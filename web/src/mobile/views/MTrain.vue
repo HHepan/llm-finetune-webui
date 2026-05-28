@@ -86,17 +86,18 @@
 
     <!-- ====== 详情弹窗 ====== -->
     <div v-if="showDetailModal" class="m-modal-overlay" @click.self="closeDetailModal">
-      <div class="m-modal-content" style="max-height:90vh;">
-        <div class="m-modal-header">
-          <span>训练详情</span>
-          <span class="m-modal-close" @click="closeDetailModal">&times;</span>
-        </div>
-
-        <!-- 详情tab切换 -->
-        <div class="m-detail-tabs">
-          <div :class="['m-detail-tab', { active: detailTab === 'info' }]" @click="detailTab = 'info'">信息</div>
-          <div :class="['m-detail-tab', { active: detailTab === 'loss' }]" @click="detailTab = 'loss'">损失</div>
-          <div :class="['m-detail-tab', { active: detailTab === 'logs' }]" @click="detailTab = 'logs'">日志</div>
+      <div class="m-modal-content" style="max-height:90vh;" ref="modalContentRef">
+        <!-- 粘性顶部：标题 + tab 选择器 -->
+        <div class="m-modal-sticky">
+          <div class="m-modal-header">
+            <span>训练详情</span>
+            <span class="m-modal-close" @click="closeDetailModal">&times;</span>
+          </div>
+          <div class="m-detail-tabs">
+            <div :class="['m-detail-tab', { active: detailTab === 'info' }]" @click="detailTab = 'info'">信息</div>
+            <div :class="['m-detail-tab', { active: detailTab === 'loss' }]" @click="detailTab = 'loss'">损失</div>
+            <div :class="['m-detail-tab', { active: detailTab === 'logs' }]" @click="detailTab = 'logs'">日志</div>
+          </div>
         </div>
 
         <div v-if="detailTab === 'info'">
@@ -177,7 +178,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 
@@ -233,6 +234,7 @@ const showDetailModal = ref(false)
 const detail = ref({})
 const detailTab = ref('info')
 const detailFolderName = ref('')
+const modalContentRef = ref(null)
 const detailEpochPct = computed(() => {
   if (!detail.value.params || !detail.value.state) return 0
   const total = detail.value.params.epoch_count || 1
@@ -251,6 +253,15 @@ const showDetail = async (row) => {
   detailTab.value = 'info'
   detail.value = { ...row }
   showDetailModal.value = true
+
+  // 等弹窗 DOM 渲染完成，立即固定高度
+  await nextTick()
+  if (modalContentRef.value) {
+    const h = modalContentRef.value.offsetHeight
+    if (h > 0) modalContentRef.value.style.height = h + 'px'
+  }
+
+  // 获取详情数据（异步，不影响已固定的弹窗高度）
   try {
     const res = await axios.get(`/api/train/records/${row.folder_name}`)
     detail.value = { ...row, params: res.data.params, state: res.data.state }
@@ -259,6 +270,10 @@ const showDetail = async (row) => {
 
 const closeDetailModal = () => {
   showDetailModal.value = false
+  // 清除固定高度，下次重新计算
+  if (modalContentRef.value) {
+    modalContentRef.value.style.height = ''
+  }
 }
 
 // ==== 停止（占位）====
@@ -405,6 +420,18 @@ onMounted(loadTrainRecords)
 }
 
 /* ====== 详情弹窗 ====== */
+.m-modal-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--c-surface);
+  padding-bottom: 16px;
+}
+
+.m-modal-sticky .m-detail-tabs {
+  margin-bottom: 0;
+}
+
 .m-detail-tabs {
   display: flex;
   gap: 4px;

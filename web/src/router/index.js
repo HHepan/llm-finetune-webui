@@ -1,11 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes =[
-  // === 桌面端路由 ===
+  // === 着陆页（入口检测）===
   {
     path: '/',
-    redirect: '/data'
+    name: 'Landing',
+    component: () => import('../views/LandingPage.vue')
   },
+
+  // === 桌面端路由 ===
   {
     path: '/data',
     name: 'DataManage',
@@ -56,6 +59,23 @@ const routes =[
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// 移动端自动跳转守卫（在组件渲染之前执行，避免闪烁）
+const isMobileDevice = () => {
+  return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini|Mobi/i.test(navigator.userAgent)
+    || window.innerWidth < 768
+}
+
+router.beforeEach((to, from, next) => {
+  const isMobile = isMobileDevice()
+  const forcedDesktop = localStorage.getItem('__forceDesktop')
+  // 移动端访问非 /m 路由 → 自动跳转
+  if (isMobile && !forcedDesktop && !to.path.startsWith('/m')) {
+    const targetPath = to.path === '/' ? '/m/data' : '/m' + to.path
+    return next(targetPath)
+  }
+  next()
 })
 
 export default router
