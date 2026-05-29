@@ -692,7 +692,9 @@ const generateResponse = async (userMessageContent, isNewMessage = true, isRegen
   const folder = pathParts[0]
 
   try {
-    let historyMessages = messages.value.slice(0, isNewMessage ? -2 : -1)
+    // 重生成时：messages = [..., userMsg, assistant占位符]，slice(0,-2) 排除 userMsg 避免重复
+    // 正常发送时：messages = [..., userMsg, assistant占位符]，slice(0,-2) 一样排除 userMsg
+    let historyMessages = messages.value.slice(0, -2)
     if (selectedRole.value && selectedRole.value !== 'none') {
       const roleCard = roleList.value.find(r => r.id === selectedRole.value)
       if (roleCard && roleCard.content) {
