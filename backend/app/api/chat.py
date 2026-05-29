@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 class ChatMessage(BaseModel):
     role: str
     content: str
+    thinking: str = ""
 
 
 class ChatRequest(BaseModel):
@@ -23,6 +24,7 @@ class ChatRequest(BaseModel):
     message: str
     messages: List[ChatMessage] = []
     params: Dict[str, Any] = {}
+    thinking_mode: bool = False
 
 
 @router.post("/chat")
@@ -65,13 +67,15 @@ async def chat(request: ChatRequest):
         manager.load_model(model_full_path, session=session)
 
         all_messages = request.messages + [{"role": "user", "content": request.message}]
-        prompt = manager.build_prompt(all_messages)
-
+        prompt = manager.build_prompt(all_messages, thinking_mode=request.thinking_mode)
+        # print(f"===============================================================")
+        # print(f"[CHAT API] PROMPT:\n{prompt}\n[END PROMPT]")
+        # print(f"===============================================================")
         queue = asyncio.Queue()
         stop_event = asyncio.Event()
 
         def sync_callback(token: str, perplexity: float = None):
-            print(f"[CHAT API] Sending token to queue: {token}")
+            # print(f"[CHAT API] Sending token to queue: {token}")
 
             if folder == "base_models":
                 temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
@@ -91,7 +95,7 @@ async def chat(request: ChatRequest):
                 with open(temp_file_path, 'w', encoding='utf-8') as f:
                     pass
 
-                print(f"[CHAT API] Starting generation, prompt: {prompt[:100]}...")
+                # print(f"[CHAT API] Starting generation, prompt: {prompt[:100]}...")
                 manager.generate(
                     prompt=prompt,
                     callback=sync_callback,
@@ -114,16 +118,16 @@ async def chat(request: ChatRequest):
         while not stop_event.is_set() or not queue.empty():
             try:
                 token, perplexity = await asyncio.wait_for(queue.get(), timeout=0.1)
-                print(f"[CHAT API] Got token from queue: {token}")
+                # print(f"[CHAT API] Got token from queue: {token}")
                 if token == "__error__":
                     error_data = json.dumps({"error": perplexity}, ensure_ascii=False)
                     yield f"data: {error_data}\n\n"
                     break
                 data_str = json.dumps({"content": token}, ensure_ascii=False)
                 data_str = data_str.strip('"')
-                print(f"[CHAT API] Token: {token}")
-                print(f"[CHAT API] Data string before yield: {data_str}")
-                print(f"[CHAT API] Yielding data: data: {data_str}\\n\\n")
+                # print(f"[CHAT API] Token: {token}")
+                # print(f"[CHAT API] Data string before yield: {data_str}")
+                # print(f"[CHAT API] Yielding data: data: {data_str}\\n\\n")
                 yield f'data: {data_str}\n\n'
             except asyncio.TimeoutError:
                 continue
@@ -131,11 +135,30 @@ async def chat(request: ChatRequest):
         # 先保存对话内容，再发送完成标记
         full_response = manager.get_last_response()
         if full_response:
-            all_messages = request.messages + [
-                ChatMessage(role="user", content=request.message),
-                ChatMessage(role="assistant", content=full_response)
-            ]
-            dialogue_content = [{"role": m.role, "content": m.content} for m in all_messages if m.role != "system"]
+            # 以"</think>"为关键字切分思考内容与正式回复
+            parts = full_response.split("</think>", 1)
+            if len(parts) == 2:
+                thinking_content = parts[0].strip()
+                response_content = parts[1].strip()
+            else:
+                thinking_content = ""
+                response_content = full_response
+
+            # 构建完整消息列表，保留历史 thinking
+            all_msgs = []
+            for m in request.messages:
+                msg_dict = {"role": m.role, "content": m.content}
+                if m.thinking:
+                    msg_dict["thinking"] = m.thinking
+                all_msgs.append(msg_dict)
+            all_msgs.append({"role": "user", "content": request.message})
+            assistant_msg = {"role": "assistant", "content": response_content}
+            if thinking_content:
+                assistant_msg["thinking"] = thinking_content
+            all_msgs.append(assistant_msg)
+
+            # 过滤 system 角色，保存到 JSON
+            dialogue_content = [m for m in all_msgs if m["role"] != "system"]
             try:
                 file_service.update_dialogue_content(folder, model_file_without_ext, session, dialogue_content)
                 print(f"[CHAT API] Dialogue saved to chat-data file")
@@ -196,4 +219,127 @@ async def preload_model(model: str = Query(...), session: str = Query(default=""
         return {"message": "模型加载成功", "model": model_path, "session": session}
     except Exception as e:
         print(f"[CHAT API] Failed to preload model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/regenerate")
+async def regenerate(request: ChatRequest):
+    """
+    重生成接口：回滚模型状态后重新生成（让模型忘记上一轮的回复）
+    
+    请求体与 /chat 完全一致，前端只需将上轮 assistant 回复从 messages 中移除即可。
+    """
+    try:
+        model_path = request.model
+        if '|' in model_path:
+            model_path, session = model_path.split('|', 1)
+        else:
+            session = ''
+
+        parts = model_path.split('/')
+        if len(parts) < 2:
+            raise HTTPException(status_code=400, detail="Invalid model path")
+
+        folder = parts[0]
+        model_file = parts[1]
+        model_file_without_ext = model_file.replace('.pth', '')
+
+        if folder == "base_models":
+            model_full_path = str(BASE_DIR / "workspace" / "base_models" / model_file_without_ext)
+        else:
+            model_full_path = str(CHECKPOINT_DIR / folder / model_file_without_ext)
+
+        manager = get_inference_manager()
+        manager.load_model(model_full_path, session=session)
+
+        # ★ 关键：回滚到上一轮生成前的状态，让模型"忘记"刚才的回答
+        manager.rollback()
+
+        all_messages = request.messages + [{"role": "user", "content": request.message}]
+        prompt = manager.build_prompt(all_messages, thinking_mode=request.thinking_mode)
+
+        queue = asyncio.Queue()
+        stop_event = asyncio.Event()
+
+        def sync_callback(token: str, perplexity: float = None):
+            if folder == "base_models":
+                temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
+            else:
+                temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
+            with open(temp_file_path, 'a', encoding='utf-8') as f:
+                f.write(token)
+            queue.put_nowait((token, perplexity))
+
+        def run_generation():
+            try:
+                if folder == "base_models":
+                    temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
+                else:
+                    temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
+                with open(temp_file_path, 'w', encoding='utf-8') as f:
+                    pass
+
+                manager.generate(
+                    prompt=prompt,
+                    callback=sync_callback,
+                    folder=folder,
+                    model_name=model_file_without_ext,
+                    session=session
+                )
+                print("[CHAT API] Regeneration completed")
+            except Exception as e:
+                print(f"[CHAT API] Regeneration error: {e}")
+                queue.put_nowait(("__error__", str(e)))
+            finally:
+                stop_event.set()
+
+        import threading
+        gen_thread = threading.Thread(target=run_generation)
+        gen_thread.start()
+
+        while not stop_event.is_set() or not queue.empty():
+            try:
+                token, perplexity = await asyncio.wait_for(queue.get(), timeout=0.1)
+                if token == "__error__":
+                    error_data = json.dumps({"error": perplexity}, ensure_ascii=False)
+                    yield f"data: {error_data}\n\n"
+                    break
+                data_str = json.dumps({"content": token}, ensure_ascii=False)
+                data_str = data_str.strip('"')
+                yield f'data: {data_str}\n\n'
+            except asyncio.TimeoutError:
+                continue
+
+        full_response = manager.get_last_response()
+        if full_response:
+            parts = full_response.split(" response", 1)
+            if len(parts) == 2:
+                thinking_content = parts[0].strip()
+                response_content = parts[1].strip()
+            else:
+                thinking_content = ""
+                response_content = full_response
+
+            all_msgs = []
+            for m in request.messages:
+                msg_dict = {"role": m.role, "content": m.content}
+                if m.thinking:
+                    msg_dict["thinking"] = m.thinking
+                all_msgs.append(msg_dict)
+            all_msgs.append({"role": "user", "content": request.message})
+            assistant_msg = {"role": "assistant", "content": response_content}
+            if thinking_content:
+                assistant_msg["thinking"] = thinking_content
+            all_msgs.append(assistant_msg)
+
+            dialogue_content = [m for m in all_msgs if m["role"] != "system"]
+            try:
+                file_service.update_dialogue_content(folder, model_file_without_ext, session, dialogue_content)
+            except Exception as e:
+                print(f"[CHAT API] Failed to save dialogue: {e}")
+
+        yield "data: [FINAL]\n\n"
+        yield "data: [DONE]\n\n"
+
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

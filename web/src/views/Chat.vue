@@ -174,6 +174,19 @@
                 </el-button>
               </div>
               <div class="message-content">
+                <!-- 可折叠的思考过程 -->
+                <div
+                  v-if="msg.role === 'assistant' && msg.thinkingContent"
+                  class="thinking-collapse"
+                >
+                  <div class="thinking-header" @click="msg.showThinking = !msg.showThinking">
+                    <span class="thinking-toggle">{{ msg.showThinking ? '▼' : '▶' }}</span>
+                    <span class="thinking-label">💭 思考过程</span>
+                  </div>
+                  <div v-show="msg.showThinking" class="thinking-body">
+                    <div class="thinking-text" v-html="formatMessage(msg.thinkingContent)"></div>
+                  </div>
+                </div>
                 <div class="message-text" v-html="formatMessage(msg.content)"></div>
                 <span v-if="msg.role === 'assistant' && msg.isStreaming" class="cursor">|</span>
                 <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="thinking-indicator">
@@ -356,6 +369,10 @@
               </div>
             </el-form-item>
 
+            <el-form-item label="思考模式">
+              <el-switch v-model="thinkingMode" active-text="开启" inactive-text="关闭" />
+            </el-form-item>
+
             <el-form-item label="max-rounds">
               <template #label>
                 <el-tooltip content="滑动窗口：保留最近 N 轮对话历史（含角色卡），超出部分自动裁剪" placement="top">
@@ -442,6 +459,7 @@ const isModelLoaded = ref(false)
 const modelLoadError = ref('')
 let displayInterval = null
 let isThinking = ref(false)
+const thinkingMode = ref(false)
 
 const showRightPanel = ref(true)
 
@@ -458,10 +476,28 @@ const displayCharByChar = (fullContent) => {
     clearInterval(displayInterval)
   }
   isThinking.value = false
-  const content = fullContent.replace(/\n+$/, '')
+
+  // 以"</think>"为关键字分割：思考内容放入可折叠区域，只逐字展示回答部分
+  let thinkingContent = ''
+  let contentToShow = fullContent
+  const thinkKeyword = '</think>'
+  const thinkIdx = fullContent.indexOf(thinkKeyword)
+  if (thinkIdx !== -1) {
+    thinkingContent = fullContent.substring(0, thinkIdx).trim()
+    contentToShow = fullContent.substring(thinkIdx + thinkKeyword.length)
+  }
+
+  const content = contentToShow.replace(/^\n+/, '').replace(/\n+$/, '')
   const lastMsg = messages.value[messages.value.length - 1]
   if (lastMsg.role !== 'assistant') return
+
+  // 保存思考内容和折叠状态
+  lastMsg.thinkingContent = thinkingContent || ''
+  lastMsg.thinking = thinkingContent || ''
+  lastMsg.showThinking = false
+
   lastMsg.content = ''
+
   let index = 0
   displayInterval = setInterval(() => {
     if (index < content.length) {
@@ -700,6 +736,9 @@ const onModelChange = async (value) => {
     isLoadingParams.value = false
   }
 
+  // 切换模型时默认关闭思考模式
+  thinkingMode.value = false
+
   isModelLoading.value = true
   isModelLoaded.value = false
   modelLoadError.value = ''
@@ -723,6 +762,25 @@ const onModelChange = async (value) => {
         params: { folder, model: modelName, session: session }
       })
       messages.value = res.data['dialogue-content'] || []
+      // 加载历史消息，处理思考内容（兼容新旧两种格式）
+      messages.value.forEach(msg => {
+        if (msg.role === 'assistant') {
+          if (msg.thinking) {
+            // 新格式：后端已切分，thinking 在独立字段
+            msg.thinkingContent = msg.thinking
+            msg.showThinking = false
+          } else if (msg.content && !msg.thinkingContent) {
+            // 旧格式兼容：从 content 中解析 " response" 关键字
+            const thinkKeyword = ' response'
+            const thinkIdx = msg.content.indexOf(thinkKeyword)
+            if (thinkIdx !== -1) {
+              msg.thinkingContent = msg.content.substring(0, thinkIdx).trim()
+              msg.content = msg.content.substring(thinkIdx + thinkKeyword.length)
+              msg.showThinking = false
+            }
+          }
+        }
+      })
       scrollToBottom()
     } catch (error) {
       messages.value = []
@@ -925,7 +983,8 @@ const generateResponse = async (userMessageContent, isNewMessage = true) => {
           alpha_presence: inferParams.alpha_presence,
           alpha_decay: inferParams.alpha_decay,
           max_rounds: inferParams.max_rounds,
-        }
+        },
+        thinking_mode: thinkingMode.value,
       })
     })
 
@@ -993,7 +1052,7 @@ const regenerateLastMessage = async () => {
     return
   }
 
-  await generateResponse(userMsg.content, false)
+  await generateResponse(userMsg.content, false, true)
 }
 
 const lastUserMessageIndex = computed(() => {
@@ -1399,8 +1458,8 @@ onUnmounted(() => {
   margin: 0 10px;
   position: relative;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .message-text {
@@ -1423,6 +1482,58 @@ onUnmounted(() => {
   margin-top: 5px;
   color: #909399;
   font-size: 14px;
+}
+
+/* 可折叠思考过程 */
+.thinking-collapse {
+  margin-bottom: 8px;
+  background: #f8f9fc;
+  border-radius: 6px;
+  border: 1px solid #e8eaef;
+  overflow: hidden;
+  width: 100%;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #606266;
+  transition: background 0.2s;
+}
+
+.thinking-header:hover {
+  background: #eef0f5;
+}
+
+.thinking-toggle {
+  font-size: 10px;
+  color: #909399;
+  width: 12px;
+  text-align: center;
+}
+
+.thinking-label {
+  font-weight: 500;
+}
+
+.thinking-body {
+  padding: 0 10px 8px 10px;
+  border-top: 1px dashed #e0e2e8;
+}
+
+.thinking-text {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #7a7f8a;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
 }
 
 .cursor {
