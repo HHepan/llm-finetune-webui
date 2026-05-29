@@ -51,6 +51,8 @@ class RWKVInferenceManager:
         self.current_model_path = None
         self.round_count = 0
         self.current_params = DEFAULT_PARAMS.copy()
+        self.last_state = None
+        self.last_occurrence = None
 
     def load_model(self, model_path: str, session: str = ''):
         """加载或切换模型"""
@@ -82,6 +84,8 @@ class RWKVInferenceManager:
 
         self.current_model_path = model_path
         self.round_count = 0
+        self.last_state = None
+        self.last_occurrence = None
 
         # 加载对应的参数
         if session:
@@ -230,12 +234,13 @@ class RWKVInferenceManager:
                     callback(char, None)
 
         try:
-            self.pipeline.generate(
+            _, self.last_state, self.last_occurrence = self.pipeline.generate(
                 prompt,
                 token_count=max_tokens,
                 args=pipeline_args,
                 callback=my_print,
-                state=None
+                state=self.last_state,
+                occurrence=self.last_occurrence
             )
         except StopIteration:
             pass
