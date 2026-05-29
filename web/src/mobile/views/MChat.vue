@@ -34,22 +34,29 @@
         <div class="m-empty-icon">💬</div>
         <span>选择模型后开始对话</span>
       </div>
-      <div
-        v-for="(msg, index) in messages"
-        :key="index"
-        class="m-chat-msg"
-        :class="msg.role"
-      >
-        <div class="m-chat-avatar">
-          <span v-if="msg.role === 'user'">😊</span>
-          <span v-else>🤖</span>
+      <template v-for="(msg, index) in messages" :key="index">
+        <!-- 滑动窗口分割线 -->
+        <div v-if="showDividerBefore(index)" class="m-memory-divider">
+          <span class="m-divider-line"></span>
+          <span class="m-divider-text">窗口外 · 模型不再记住</span>
+          <span class="m-divider-line"></span>
         </div>
-        <div class="m-chat-bubble">
-          <div class="m-chat-text" v-html="formatMessage(msg.content)"></div>
-          <span v-if="msg.role === 'assistant' && msg.isStreaming" class="m-cursor">|</span>
-          <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="m-thinking">思考中...</div>
+        <div
+          :id="'msg-' + index"
+          class="m-chat-msg"
+          :class="msg.role"
+        >
+          <div class="m-chat-avatar">
+            <span v-if="msg.role === 'user'">😊</span>
+            <span v-else>🤖</span>
+          </div>
+          <div class="m-chat-bubble">
+            <div class="m-chat-text" v-html="formatMessage(msg.content)"></div>
+            <span v-if="msg.role === 'assistant' && msg.isStreaming" class="m-cursor">|</span>
+            <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="m-thinking">思考中...</div>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
 
     <!-- 操作按钮组 -->
@@ -178,22 +185,29 @@
         </div>
         <el-form :model="inferParams" label-width="0">
           <div class="m-param-item">
-            <div class="m-param-label">temperature</div>
-            <el-input-number v-model="inferParams.temperature" :min="0" :max="2" :step="0.01" :precision="2" size="small" style="width:100%;" />
-          </div>
-          <div class="m-param-item">
-            <div class="m-param-label">alpha_frequency</div>
-            <el-input-number v-model="inferParams.alpha_frequency" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
-          </div>
-          <div class="m-param-item">
-            <div class="m-param-label">alpha_presence</div>
-            <el-input-number v-model="inferParams.alpha_presence" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
-          </div>
-          <div class="m-param-item">
-            <div class="m-param-label">alpha_decay</div>
-            <el-input-number v-model="inferParams.alpha_decay" :min="0" :max="1" :step="0.001" :precision="3" size="small" style="width:100%;" />
+            <div class="m-param-label">max-rounds</div>
+            <el-input-number v-model="inferParams.max_rounds" :min="1" :max="100" size="small" style="width:100%;" />
+            <div class="m-param-hint">保留最近 N 轮对话，超出部分自动裁剪</div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">
+            <div>
+              <div class="m-param-label">temperature</div>
+              <el-input-number v-model="inferParams.temperature" :min="0" :max="2" :step="0.01" :precision="2" size="small" style="width:100%;" />
+            </div>
+            <div>
+              <div class="m-param-label">alpha_frequency</div>
+              <el-input-number v-model="inferParams.alpha_frequency" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
+            </div>
+            <div>
+              <div class="m-param-label">alpha_presence</div>
+              <el-input-number v-model="inferParams.alpha_presence" :min="0" :max="1" :step="0.01" :precision="2" size="small" style="width:100%;" />
+            </div>
+            <div>
+              <div class="m-param-label">alpha_decay</div>
+              <el-input-number v-model="inferParams.alpha_decay" :min="0" :max="1" :step="0.001" :precision="3" size="small" style="width:100%;" />
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;">
             <div>
               <div class="m-param-label">max_tokens</div>
               <el-input-number v-model="inferParams.max_tokens" :min="1" :max="4096" size="small" style="width:100%;" />
@@ -264,13 +278,15 @@ const roleList = ref([{ id: 'none', name: '无（普通对话）', content: '' }
 const inferParams = reactive({
   model: '', max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
-  alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996
+  alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
+  max_rounds: 15
 })
 
 const defaultParams = {
   max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
-  alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996
+  alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
+  max_rounds: 15
 }
 
 const roleplayParams = {
@@ -288,6 +304,29 @@ const scrollToBottom = () => {
 const formatMessage = (content) => {
   if (!content) return ''
   return content.replace(/\n/g, '<br>')
+}
+
+// 滑动窗口边界：模型记住的对话起始位置（镜像后端 build_prompt 逻辑）
+const windowBoundaryIndex = computed(() => {
+  const maxRounds = inferParams.max_rounds || 15
+  const msgs = messages.value
+  if (msgs.length === 0) return -1
+
+  // 跳过首条 system 角色卡
+  const convStart = msgs[0] && msgs[0].role === 'system' ? 1 : 0
+  const convLen = msgs.length - convStart
+  const maxMessages = maxRounds * 2 + 1  // N轮完整对话 + 当前用户消息
+
+  if (convLen > maxMessages) {
+    // 第一个被模型记住的消息在原始数组中的索引
+    return convStart + convLen - maxMessages
+  }
+  return -1  // 无需分割
+})
+
+// 判断在 index 位置前是否要显示分割线
+function showDividerBefore(index) {
+  return index === windowBoundaryIndex.value
 }
 
 // ==== API 方法 ====
@@ -614,7 +653,8 @@ const generateResponse = async (userMessageContent, isNewMessage = true) => {
           top_k: inferParams.top_k,
           alpha_frequency: inferParams.alpha_frequency,
           alpha_presence: inferParams.alpha_presence,
-          alpha_decay: inferParams.alpha_decay
+          alpha_decay: inferParams.alpha_decay,
+          max_rounds: inferParams.max_rounds
         }
       })
     })
@@ -841,6 +881,38 @@ onUnmounted(() => {
 
 @keyframes blink {
   50% { opacity: 0; }
+}
+
+/* 滑动窗口分割线（移动端） */
+.m-memory-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 2px 0;
+  user-select: none;
+  opacity: 0.55;
+}
+
+.m-memory-divider .m-divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--c-border), transparent);
+}
+
+.m-memory-divider .m-divider-text {
+  font-size: 11px;
+  color: var(--c-text-muted);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  font-weight: 400;
+}
+
+/* 参数辅助提示 */
+.m-param-hint {
+  font-size: 11px;
+  color: var(--c-text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .m-thinking {

@@ -137,26 +137,35 @@ class RWKVInferenceManager:
             User: 消息
 
             Assistant:
+
+        滑动窗口：保留最近 N 轮对话（从 current_params.max_rounds 读取），角色卡始终保留。
         """
         prompt = ""
 
-        # 1. 处理 system 角色卡（如果有）
+        # 1. 提取 system 角色卡（始终保留）
         system_content = None
-        if messages and messages[0].get("role") == "system" if isinstance(messages[0], dict) else messages[0].role == "system":
+        if messages and (messages[0].get("role") if isinstance(messages[0], dict) else messages[0].role) == "system":
             system_content = messages[0].get("content") if isinstance(messages[0], dict) else messages[0].content
-            messages = messages[1:]  # 移除 system 消息，后面统一处理
+            messages = messages[1:]  # 从对话中移除，后面单独追加
 
+        # 2. 滑动窗口：从 current_params 读取最大保留轮数
+        max_rounds = self.current_params.get("max_rounds", 15)
+        max_messages = max_rounds * 2 + 1  # max_rounds 个完整轮次 + 当前用户消息
+        if len(messages) > max_messages:
+            print(f"[RWKV] Sliding window: {len(messages)} messages > {max_messages}, trimming to {max_rounds} rounds")
+            messages = messages[-max_messages:]
+
+        # 3. 构建 prompt
         if system_content:
             prompt += f"System: {system_content}\n\n"
 
-        # 2. 构建对话历史
         for i, msg in enumerate(messages):
             raw_role = msg.get("role") if isinstance(msg, dict) else msg.role
             content = msg.get("content") if isinstance(msg, dict) else msg.content
             role = "User" if raw_role == "user" else "Assistant"
             prompt += f"{role}: {content}\n\n"
 
-        # 3. 最后以 Assistant: 结尾，触发模型回复
+        # 4. 最后以 Assistant: 结尾，触发模型回复
         prompt += "Assistant:"
         return prompt
 
