@@ -128,7 +128,7 @@ class RWKVInferenceManager:
                 return data.get('params', DEFAULT_PARAMS.copy())
         return DEFAULT_PARAMS.copy()
 
-    def build_prompt(self, messages: list) -> str:
+    def build_prompt(self, messages: list, thinking_mode: bool = False) -> str:
         """构建 prompt，包含角色卡和对话历史
 
         RWKV-7 G1x 模板格式:
@@ -143,6 +143,8 @@ class RWKVInferenceManager:
             Assistant:
 
         滑动窗口：保留最近 N 轮对话（从 current_params.max_rounds 读取），角色卡始终保留。
+
+        若 thinking_mode=True，则在末尾 "Assistant:" 后追加 " thinking"，触发模型输出推理过程。
         """
         prompt = ""
 
@@ -171,6 +173,8 @@ class RWKVInferenceManager:
 
         # 4. 最后以 Assistant: 结尾，触发模型回复
         prompt += "Assistant:"
+        if thinking_mode:
+            prompt += "<think>"
         return prompt
 
     def generate(self, prompt: str, callback: Callable[[str, Optional[float]], None], folder: str = None, model_name: str = None, session: str = ''):

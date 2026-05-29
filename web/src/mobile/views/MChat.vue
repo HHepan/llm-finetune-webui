@@ -51,6 +51,16 @@
             <span v-else>🤖</span>
           </div>
           <div class="m-chat-bubble">
+            <!-- 可折叠的思考过程 -->
+            <div v-if="msg.role === 'assistant' && msg.thinkingContent" class="m-thinking-collapse">
+              <div class="m-thinking-header" @click.stop="msg.showThinking = !msg.showThinking">
+                <span class="m-thinking-toggle">{{ msg.showThinking ? '▼' : '▶' }}</span>
+                <span class="m-thinking-label">💭 思考过程</span>
+              </div>
+              <div v-show="msg.showThinking" class="m-thinking-body" @click.stop>
+                <div class="m-thinking-text" v-html="formatMessage(msg.thinkingContent)"></div>
+              </div>
+            </div>
             <div class="m-chat-text" v-html="formatMessage(msg.content)"></div>
             <span v-if="msg.role === 'assistant' && msg.isStreaming" class="m-cursor">|</span>
             <div v-if="msg.role === 'assistant' && isThinking && !msg.content" class="m-thinking">思考中...</div>
@@ -65,6 +75,17 @@
         <el-button size="small" plain @click="showMoreActions = true">更多操作</el-button>
         <el-button size="small" plain @click="regenerateLastMessage" :disabled="!canRegenerate">重生成</el-button>
         <el-button size="small" plain @click="reEditLastMessage" :disabled="!canReEdit">改提问</el-button>
+        <el-button
+          size="small"
+          :plain="!thinkingMode"
+          :type="thinkingMode ? 'primary' : 'default'"
+          @click="thinkingMode = !thinkingMode"
+          class="m-thinking-btn"
+          :class="{ 'is-lit': thinkingMode }"
+        >
+          <span class="m-thinking-btn-icon">💭</span>
+          <span>思考</span>
+        </el-button>
         <span v-if="isModelLoading" class="m-model-status loading"><span class="m-spinner m-spinner--inline"></span>加载中...</span>
         <span v-else-if="modelLoadError" class="m-model-status error">❌ 加载失败</span>
         <span v-else-if="isModelLoaded && selectedModel" class="m-model-status ready">● 就绪</span>
@@ -251,6 +272,7 @@ const modelLoadError = ref('')
 const isParamsSynced = ref(true)
 const isStreaming = ref(false)
 const isThinking = ref(false)
+const thinkingMode = ref(false)
 const messagesRef = ref(null)
 let displayInterval = null
 
@@ -353,6 +375,9 @@ const loadModels = async () => {
 }
 
 const onModelChange = async (value) => {
+  // 切换模型时默认关闭思考模式
+  thinkingMode.value = false
+
   const parts = value.split('|')
   const modelPath = parts[0]
   const session = parts[1] || ''
@@ -381,6 +406,25 @@ const onModelChange = async (value) => {
     try {
       const res = await axios.get('/api/data/chat-data', { params: { folder, model: modelName, session } })
       messages.value = res.data['dialogue-content'] || []
+      // 加载历史消息，处理思考内容（兼容新旧两种格式）
+      messages.value.forEach(msg => {
+        if (msg.role === 'assistant') {
+          if (msg.thinking) {
+            // 新格式：后端已切分，thinking 在独立字段
+            msg.thinkingContent = msg.thinking
+            msg.showThinking = false
+          } else if (msg.content && !msg.thinkingContent) {
+            // 旧格式兼容：从 content 中解析 " response" 关键字
+            const thinkKeyword = '</think>'
+            const thinkIdx = msg.content.indexOf(thinkKeyword)
+            if (thinkIdx !== -1) {
+              msg.thinkingContent = msg.content.substring(0, thinkIdx).trim()
+              msg.content = msg.content.substring(thinkIdx + thinkKeyword.length)
+              msg.showThinking = false
+            }
+          }
+        }
+      })
       scrollToBottom()
     } catch { messages.value = [] }
   }
@@ -572,9 +616,26 @@ const handleEnter = (e) => {
 const displayCharByChar = (fullContent) => {
   if (displayInterval) clearInterval(displayInterval)
   isThinking.value = false
-  const content = fullContent.replace(/\n+$/, '')
+
+  // 以" response"为关键字分割：思考内容放入可折叠区域，只逐字展示回答部分
+  let thinkingContent = ''
+  let contentToShow = fullContent
+  const thinkKeyword = '</think>'
+  const thinkIdx = fullContent.indexOf(thinkKeyword)
+  if (thinkIdx !== -1) {
+    thinkingContent = fullContent.substring(0, thinkIdx).trim()
+    contentToShow = fullContent.substring(thinkIdx + thinkKeyword.length)
+  }
+
+  const content = contentToShow.replace(/^\n+/, '').replace(/\n+$/, '')
   const lastMsg = messages.value[messages.value.length - 1]
   if (!lastMsg || lastMsg.role !== 'assistant') return
+
+  // 保存思考内容和折叠状态
+  lastMsg.thinkingContent = thinkingContent || ''
+  lastMsg.thinking = thinkingContent || ''
+  lastMsg.showThinking = false
+
   lastMsg.content = ''
   let index = 0
   displayInterval = setInterval(() => {
@@ -655,7 +716,8 @@ const generateResponse = async (userMessageContent, isNewMessage = true) => {
           alpha_presence: inferParams.alpha_presence,
           alpha_decay: inferParams.alpha_decay,
           max_rounds: inferParams.max_rounds
-        }
+        },
+        thinking_mode: thinkingMode.value
       })
     })
 
@@ -915,10 +977,99 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 
+/* 可折叠思考过程（移动端适配） */
+.m-thinking-collapse {
+  margin-bottom: 8px;
+  background: #f4f5f9;
+  border-radius: 6px;
+  border: 1px solid #e2e4ea;
+  overflow: hidden;
+  width: 100%;
+}
+.m-chat-msg.user .m-thinking-collapse {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.2);
+}
+.m-chat-msg.user .m-thinking-text {
+  color: rgba(255,255,255,0.75);
+}
+.m-chat-msg.user .m-thinking-label {
+  color: rgba(255,255,255,0.85);
+}
+.m-chat-msg.user .m-thinking-toggle {
+  color: rgba(255,255,255,0.6);
+}
+.m-chat-msg.user .m-thinking-header:hover {
+  background: rgba(255,255,255,0.1);
+}
+.m-chat-msg.user .m-thinking-body {
+  border-top-color: rgba(255,255,255,0.15);
+}
+
+.m-thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #606266;
+  transition: background 0.2s;
+}
+.m-thinking-header:active {
+  background: #e8eaf0;
+}
+.m-thinking-toggle {
+  font-size: 10px;
+  color: #909399;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.m-thinking-label {
+  font-weight: 500;
+}
+.m-thinking-body {
+  padding: 0 10px 8px 10px;
+  border-top: 1px dashed #dcdde2;
+}
+.m-thinking-text {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #7a7f8a;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+}
+
 .m-thinking {
   color: var(--c-text-muted);
   font-size: 13px;
   font-style: italic;
+}
+
+/* 思考模式开关按钮 */
+.m-thinking-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.25s;
+}
+.m-thinking-btn.is-lit {
+  background: var(--c-primary-soft) !important;
+  border-color: var(--c-primary-light) !important;
+  color: var(--c-primary) !important;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+}
+.m-thinking-btn:not(.is-lit) .m-thinking-btn-icon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+.m-thinking-btn.is-lit .m-thinking-btn-icon {
+  opacity: 1;
+  filter: none;
 }
 
 /* 更多操作弹窗列表 */
