@@ -53,6 +53,8 @@ class RWKVInferenceManager:
         self.current_params = DEFAULT_PARAMS.copy()
         self.last_state = None
         self.last_occurrence = None
+        self._checkpoint_state = None
+        self._checkpoint_occurrence = None
 
     def load_model(self, model_path: str, session: str = ''):
         """加载或切换模型"""
@@ -86,6 +88,8 @@ class RWKVInferenceManager:
         self.round_count = 0
         self.last_state = None
         self.last_occurrence = None
+        self._checkpoint_state = None
+        self._checkpoint_occurrence = None
 
         # 加载对应的参数
         if session:
@@ -184,6 +188,10 @@ class RWKVInferenceManager:
 
         print(f"[RWKV] Starting generation with prompt: {prompt[:100]}...")
 
+        # 保存检查点——记录"本轮生成开始前"的状态，用于重生成回滚
+        self._checkpoint_state = self.last_state
+        self._checkpoint_occurrence = self.last_occurrence
+
         # 如果有session，重新加载对应参数
         if session and folder and model_name:
             self.current_params = self.load_params_from_json(folder, model_name, session)
@@ -268,6 +276,12 @@ class RWKVInferenceManager:
 
     def get_last_response(self) -> str:
         return getattr(self, 'last_response', '')
+
+    def rollback(self):
+        """回滚到上一个检查点（重生成时使用，让模型忘记上一轮的回答）"""
+        self.last_state = self._checkpoint_state
+        self.last_occurrence = self._checkpoint_occurrence
+        print(f"[RWKV] Rolled back to checkpoint state: {self._checkpoint_state is not None}")
 
 
 _manager = RWKVInferenceManager()

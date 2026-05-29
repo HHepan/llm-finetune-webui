@@ -1052,7 +1052,7 @@ const regenerateLastMessage = async () => {
     return
   }
 
-  await generateResponse(userMsg.content, false)
+  await generateResponse(userMsg.content, false, true)
 }
 
 const lastUserMessageIndex = computed(() => {

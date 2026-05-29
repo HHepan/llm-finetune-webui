@@ -677,7 +677,7 @@ const canReEdit = computed(() => {
   return lastUserMessageIndex.value !== -1
 })
 
-const generateResponse = async (userMessageContent, isNewMessage = true) => {
+const generateResponse = async (userMessageContent, isNewMessage = true, isRegenerate = false) => {
   if (isNewMessage) {
     messages.value.push({ role: 'user', content: userMessageContent })
     scrollToBottom()
@@ -700,7 +700,8 @@ const generateResponse = async (userMessageContent, isNewMessage = true) => {
       }
     }
 
-    const response = await fetch('/api/chat/chat', {
+    const apiUrl = isRegenerate ? '/api/chat/regenerate' : '/api/chat/chat'
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -769,7 +770,7 @@ const regenerateLastMessage = async () => {
     ElMessage.warning('未找到对应的用户消息')
     return
   }
-  await generateResponse(userMsg.content, false)
+  await generateResponse(userMsg.content, false, true)
 }
 
 const reEditLastMessage = () => {
