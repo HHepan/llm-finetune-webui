@@ -135,13 +135,19 @@
             <div v-if="messages.length === 0" class="empty-chat">
               <el-empty description="暂无对话内容，请选择模型后开始对话" />
             </div>
-            <div
-              v-for="(msg, index) in messages"
-              :key="index"
-              class="message-item"
-              :class="msg.role"
-            >
-              <div class="message-left">
+            <template v-for="(msg, index) in messages" :key="index">
+              <!-- 滑动窗口分割线 -->
+              <div v-if="showDividerBefore(index)" class="memory-divider">
+                <span class="divider-line"></span>
+                <span class="divider-text">窗口外 · 模型不再记住</span>
+                <span class="divider-line"></span>
+              </div>
+              <div
+                :id="'msg-' + index"
+                class="message-item"
+                :class="msg.role"
+              >
+                <div class="message-left">
                 <div class="message-avatar">
                   <el-icon v-if="msg.role === 'user'"><User /></el-icon>
                   <el-icon v-else><ChatDotRound /></el-icon>
@@ -175,6 +181,7 @@
                 </div>
               </div>
             </div>
+            </template>
           </div>
 
           <!-- 输入区域 -->
@@ -347,6 +354,20 @@
                 />
                 <span class="slider-value">{{ inferParams.alpha_decay.toFixed(3) }}</span>
               </div>
+            </el-form-item>
+
+            <el-form-item label="max-rounds">
+              <template #label>
+                <el-tooltip content="滑动窗口：保留最近 N 轮对话历史（含角色卡），超出部分自动裁剪" placement="top">
+                  <span>max-rounds</span>
+                </el-tooltip>
+              </template>
+              <el-input-number
+                v-model="inferParams.max_rounds"
+                :min="1"
+                :max="100"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-form>
         </el-card>
@@ -614,7 +635,8 @@ const inferParams = reactive({
   top_k: 0,
   alpha_frequency: 0.2,
   alpha_presence: 0.2,
-  alpha_decay: 0.996
+  alpha_decay: 0.996,
+  max_rounds: 15,
 })
 
 const isParamsSynced = ref(true)
@@ -629,7 +651,8 @@ const defaultParams = {
   top_k: 0,
   alpha_frequency: 0.2,
   alpha_presence: 0.2,
-  alpha_decay: 0.996
+  alpha_decay: 0.996,
+  max_rounds: 15,
 }
 
 const loadModels = async () => {
@@ -900,7 +923,8 @@ const generateResponse = async (userMessageContent, isNewMessage = true) => {
           top_k: inferParams.top_k,
           alpha_frequency: inferParams.alpha_frequency,
           alpha_presence: inferParams.alpha_presence,
-          alpha_decay: inferParams.alpha_decay
+          alpha_decay: inferParams.alpha_decay,
+          max_rounds: inferParams.max_rounds,
         }
       })
     })
@@ -1008,6 +1032,29 @@ const reEditLastMessage = () => {
   })
 }
 
+// 滑动窗口边界：模型记住的对话起始位置（镜像后端 build_prompt 逻辑）
+const windowBoundaryIndex = computed(() => {
+  const maxRounds = inferParams.max_rounds || 15
+  const msgs = messages.value
+  if (msgs.length === 0) return -1
+
+  // 跳过首条 system 角色卡
+  const convStart = msgs[0] && msgs[0].role === 'system' ? 1 : 0
+  const convLen = msgs.length - convStart
+  const maxMessages = maxRounds * 2 + 1  // N轮完整对话 + 当前用户消息
+
+  if (convLen > maxMessages) {
+    // 第一个被模型记住的消息在原始数组中的索引
+    return convStart + convLen - maxMessages
+  }
+  return -1  // 无需分割
+})
+
+// 判断在 index 位置前是否要显示分割线
+function showDividerBefore(index) {
+  return index === windowBoundaryIndex.value
+}
+
 const formatMessage = (content) => {
   if (!content) return ''
   return content.replace(/\n/g, '<br>')
@@ -1108,7 +1155,8 @@ watch(() => inferParams, async () => {
         top_k: inferParams.top_k,
         alpha_frequency: inferParams.alpha_frequency,
         alpha_presence: inferParams.alpha_presence,
-        alpha_decay: inferParams.alpha_decay
+        alpha_decay: inferParams.alpha_decay,
+        max_rounds: inferParams.max_rounds,
       }
     })
 
@@ -1121,7 +1169,8 @@ watch(() => inferParams, async () => {
         top_k: inferParams.top_k,
         alpha_frequency: inferParams.alpha_frequency,
         alpha_presence: inferParams.alpha_presence,
-        alpha_decay: inferParams.alpha_decay
+        alpha_decay: inferParams.alpha_decay,
+        max_rounds: inferParams.max_rounds,
       }
     })
 
@@ -1295,6 +1344,29 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* 滑动窗口分割线 */
+.memory-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 16px 0;
+  user-select: none;
+  opacity: 0.7;
+}
+
+.memory-divider .divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, #c0c4cc, transparent);
+}
+
+.memory-divider .divider-text {
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
 }
 
 .message-item {
