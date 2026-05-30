@@ -518,6 +518,7 @@ const clearHistory = async () => {
     const folder = pathParts[0]
     const modelName = pathParts[1].replace('.pth', '')
     await axios.put('/api/data/chat-data/dialogue', { folder, model: modelName, session, dialogue_content: [] })
+    await axios.post('/api/chat/reset-state')
     messages.value = []
     ElMessage.success('已清空')
   } catch { ElMessage.error('清空失败') }

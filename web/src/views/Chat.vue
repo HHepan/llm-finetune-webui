@@ -913,6 +913,7 @@ const clearHistory = async () => {
       session: session,
       dialogue_content: []
     })
+    await axios.post('/api/chat/reset-state')
     messages.value = []
     ElMessage.success('历史记录已清空')
   } catch (error) {

@@ -222,6 +222,19 @@ async def preload_model(model: str = Query(...), session: str = Query(default=""
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/reset-state")
+async def reset_state():
+    """重置模型推理状态（清空对话时调用，让模型彻底忘记历史记忆）"""
+    try:
+        manager = get_inference_manager()
+        manager.reset_state()
+        print(f"[CHAT API] Model state reset")
+        return {"message": "模型状态已重置"}
+    except Exception as e:
+        print(f"[CHAT API] Failed to reset state: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/regenerate")
 async def regenerate(request: ChatRequest):
     """

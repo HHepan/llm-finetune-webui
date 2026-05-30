@@ -14,7 +14,7 @@ from rwkv_tokenizer import RWKV_TOKENIZER
 
 import torch
 from .rwkv_x070_dual import RWKV_x070_Dual
-from rwkv.utils import PIPELINE, PIPELINE_ARGS
+from .rwkv_utils_patch import PIPELINE, PIPELINE_ARGS
 
 CHECKPOINT_DIR = Path("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints")
 BASE_MODELS_DIR = Path("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/base_models")
@@ -282,6 +282,15 @@ class RWKVInferenceManager:
         self.last_state = self._checkpoint_state
         self.last_occurrence = self._checkpoint_occurrence
         print(f"[RWKV] Rolled back to checkpoint state: {self._checkpoint_state is not None}")
+
+    def reset_state(self):
+        """重置模型状态（清空对话时使用，让模型彻底忘记所有历史）"""
+        self.last_state = None
+        self.last_occurrence = None
+        self._checkpoint_state = None
+        self._checkpoint_occurrence = None
+        self.round_count = 0
+        print("[RWKV] State fully reset")
 
 
 _manager = RWKVInferenceManager()
