@@ -37,7 +37,7 @@
               <el-button type="warning" @click="clearHistory" :disabled="!selectedModel">清空历史</el-button>
               <div v-if="isModelLoading" class="model-status loading">
                 <el-icon class="loading-icon"><Loading /></el-icon>
-                <span>模型加载</span>
+                <span>加载</span>
               </div>
               <div v-else-if="modelLoadError" class="model-status error">
                 <span>{{ modelLoadError }}</span>
@@ -45,7 +45,7 @@
               </div>
               <div v-else-if="isModelLoaded" class="model-status success">
                 <el-icon><CircleCheck /></el-icon>
-                <span>模型就绪</span>
+                <span>就绪</span>
               </div>
               <div style="flex:1;"></div>
 
@@ -672,7 +672,7 @@ const inferParams = reactive({
   alpha_frequency: 0.2,
   alpha_presence: 0.2,
   alpha_decay: 0.996,
-  max_rounds: 15,
+  max_rounds: 5,
 })
 
 const isParamsSynced = ref(true)
@@ -688,7 +688,7 @@ const defaultParams = {
   alpha_frequency: 0.2,
   alpha_presence: 0.2,
   alpha_decay: 0.996,
-  max_rounds: 15,
+  max_rounds: 5,
 }
 
 const loadModels = async () => {
@@ -1095,7 +1095,7 @@ const reEditLastMessage = () => {
 
 // 滑动窗口边界：模型记住的对话起始位置（镜像后端 build_prompt 逻辑）
 const windowBoundaryIndex = computed(() => {
-  const maxRounds = inferParams.max_rounds || 15
+  const maxRounds = inferParams.max_rounds || 5
   const msgs = messages.value
   if (msgs.length === 0) return -1
 
@@ -1660,4 +1660,4 @@ onUnmounted(() => {
   margin-top: 8px;
   width: 100%;
 }
-</style>
+</style>>

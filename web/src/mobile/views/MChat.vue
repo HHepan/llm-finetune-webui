@@ -72,7 +72,7 @@
     <!-- 操作按钮组 -->
     <div class="m-chat-toolbar">
       <div class="toolbar-row">
-        <el-button size="small" plain @click="showMoreActions = true">更多操作</el-button>
+        <el-button size="small" plain @click="showMoreActions = true">更多</el-button>
         <el-button size="small" plain @click="regenerateLastMessage" :disabled="!canRegenerate">重生成</el-button>
         <el-button size="small" plain @click="reEditLastMessage" :disabled="!canReEdit">改提问</el-button>
         <el-button
@@ -301,14 +301,14 @@ const inferParams = reactive({
   model: '', max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
   alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
-  max_rounds: 15
+  max_rounds: 5
 })
 
 const defaultParams = {
   max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
   alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
-  max_rounds: 15
+  max_rounds: 5
 }
 
 const roleplayParams = {
@@ -330,7 +330,7 @@ const formatMessage = (content) => {
 
 // 滑动窗口边界：模型记住的对话起始位置（镜像后端 build_prompt 逻辑）
 const windowBoundaryIndex = computed(() => {
-  const maxRounds = inferParams.max_rounds || 15
+  const maxRounds = inferParams.max_rounds || 5
   const msgs = messages.value
   if (msgs.length === 0) return -1
 

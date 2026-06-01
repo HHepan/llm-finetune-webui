@@ -159,7 +159,7 @@ class RWKVInferenceManager:
             messages = messages[1:]  # 从对话中移除，后面单独追加
 
         # 2. 滑动窗口：从 current_params 读取最大保留轮数
-        max_rounds = self.current_params.get("max_rounds", 15)
+        max_rounds = self.current_params.get("max_rounds", 5)
         max_messages = max_rounds * 2 + 1  # max_rounds 个完整轮次 + 当前用户消息
         if len(messages) > max_messages:
             print(f"[RWKV] Sliding window: {len(messages)} messages > {max_messages}, trimming to {max_rounds} rounds")
