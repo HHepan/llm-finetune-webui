@@ -198,9 +198,9 @@ class RWKVInferenceManager:
         session_key = session or 'default'
         sd = self._get_session_data(session_key)
 
-        # 保存检查点——记录"本轮生成开始前"的状态，用于重生成回滚
-        sd['checkpoint_state'] = sd['state']
-        sd['checkpoint_occurrence'] = sd['occurrence']
+        # 保存检查点——深拷贝当前 state/occurrence，确保 checkpoint 独立于后续的原地修改
+        sd['checkpoint_state'] = copy.deepcopy(sd['state'])
+        sd['checkpoint_occurrence'] = copy.deepcopy(sd['occurrence'])
 
         # 如果有session，重新加载对应参数
         if session and folder and model_name:
