@@ -360,8 +360,3 @@ async def regenerate(request: ChatRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    yield "data: [FINAL]\n\n"
-        yield "data: [DONE]\n\n"
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
