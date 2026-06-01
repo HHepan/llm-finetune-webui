@@ -336,8 +336,8 @@ const defaultParams = {
 }
 
 const roleplayParams = {
-  temperature: 0.6, top_p: 0.7, top_k: 0,
-  alpha_frequency: 0.2, alpha_presence: 2.0, alpha_decay: 0.99
+  temperature: 1.15, top_p: 0.9, top_k: 60,
+  alpha_frequency: 0.3, alpha_presence: 0.15, alpha_decay: 0.40
 }
 
 import { currentChatName } from '../stores/chat-store'
