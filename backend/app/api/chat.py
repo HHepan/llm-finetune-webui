@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
@@ -25,6 +25,10 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage] = []
     params: Dict[str, Any] = {}
     thinking_mode: bool = False
+
+
+class ResetStateRequest(BaseModel):
+    model: str
 
 
 @router.post("/chat")
@@ -68,9 +72,9 @@ async def chat(request: ChatRequest):
 
         all_messages = request.messages + [{"role": "user", "content": request.message}]
         prompt = manager.build_prompt(all_messages, thinking_mode=request.thinking_mode)
-        # print(f"===============================================================")
-        # print(f"[CHAT API] PROMPT:\n{prompt}\n[END PROMPT]")
-        # print(f"===============================================================")
+        print(f"===============================================================")
+        print(f"[CHAT API] PROMPT:\n{prompt}\n[END PROMPT]")
+        print(f"===============================================================")
         queue = asyncio.Queue()
         stop_event = asyncio.Event()
 
@@ -223,9 +227,10 @@ async def preload_model(model: str = Query(...), session: str = Query(default=""
 
 
 @router.post("/reset-state")
-async def reset_state(model: str = Body(...)):
+async def reset_state(request: ResetStateRequest):
     """重置模型推理状态（清空对话时调用，让模型彻底忘记历史记忆）"""
     try:
+        model = request.model
         session = ''
         if '|' in model:
             _, session = model.split('|', 1)
