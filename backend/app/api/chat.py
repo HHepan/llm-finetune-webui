@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
@@ -223,9 +223,10 @@ async def preload_model(model: str = Query(...), session: str = Query(default=""
 
 
 @router.post("/reset-state")
-async def reset_state(model: str = Body(...)):
+async def reset_state(request: ResetStateRequest):
     """重置模型推理状态（清空对话时调用，让模型彻底忘记历史记忆）"""
     try:
+        model = request.model
         session = ''
         if '|' in model:
             _, session = model.split('|', 1)
@@ -360,3 +361,4 @@ async def regenerate(request: ChatRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+00, detail=str(e))
