@@ -275,6 +275,30 @@ const isThinking = ref(false)
 const thinkingMode = ref(false)
 const messagesRef = ref(null)
 let displayInterval = null
+let viewportHandler = null
+
+// ==== 生命周期 ====
+onMounted(() => {
+  loadModels()
+  loadRoleList()
+  loadCheckpointFolders()
+
+  // 移动端键盘弹起/收起时自动滚动到底部
+  // 使用 visualViewport API（比 window resize 更精确）
+  if (window.visualViewport) {
+    viewportHandler = () => nextTick(() => {
+      if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    })
+    window.visualViewport.addEventListener('resize', viewportHandler)
+  }
+})
+
+onUnmounted(() => {
+  if (displayInterval) clearInterval(displayInterval)
+  if (window.visualViewport && viewportHandler) {
+    window.visualViewport.removeEventListener('resize', viewportHandler)
+  }
+})
 
 // 面板控制
 const showNewChat = ref(false)
@@ -845,15 +869,6 @@ const onParamsFocusIn = (e) => {
   }, 350)
 }
 
-onMounted(() => {
-  loadModels()
-  loadRoleList()
-  loadCheckpointFolders()
-})
-
-onUnmounted(() => {
-  if (displayInterval) clearInterval(displayInterval)
-})
 </script>
 
 <style scoped>
