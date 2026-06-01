@@ -334,7 +334,7 @@ async def regenerate(request: ChatRequest):
 
         full_response = manager.get_last_response()
         if full_response:
-            parts = full_response.split(" response", 1)
+            parts = full_response.split("</think>", 1)
             if len(parts) == 2:
                 thinking_content = parts[0].strip()
                 response_content = parts[1].strip()
