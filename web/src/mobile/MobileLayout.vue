@@ -5,7 +5,12 @@
       <div class="m-header-left">
         <div class="m-header-brand">
           <span class="m-header-dot"></span>
-          <span class="m-header-title">{{ $route.meta?.title || 'LLM WebUI' }}</span>
+          <span class="m-header-title">
+            {{ $route.meta?.title || 'LLM WebUI' }}
+            <template v-if="$route.path === '/m/chat' && currentChatName">
+              （{{ currentChatName }}）
+            </template>
+          </span>
         </div>
       </div>
       <div class="m-header-accent"></div>
@@ -42,6 +47,7 @@
 <script setup>
 import { useRouter, useRoute } from 'vue-router'
 import { ref, onMounted } from 'vue'
+import { currentChatName } from './stores/chat-store'
 
 const isDark = ref(false)
 

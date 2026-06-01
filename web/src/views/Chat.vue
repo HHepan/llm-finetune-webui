@@ -6,7 +6,7 @@
         <el-card class="chat-card">
           <template #header>
             <div class="chat-header">
-              <span>当前对话</span>
+              <span>{{ currentChatName }}</span>
               <el-select
                 v-model="selectedModel"
                 placeholder="暂无对话，请新建"
@@ -37,7 +37,7 @@
               <el-button type="warning" @click="clearHistory" :disabled="!selectedModel">清空历史</el-button>
               <div v-if="isModelLoading" class="model-status loading">
                 <el-icon class="loading-icon"><Loading /></el-icon>
-                <span>模型加载</span>
+                <span>加载</span>
               </div>
               <div v-else-if="modelLoadError" class="model-status error">
                 <span>{{ modelLoadError }}</span>
@@ -45,7 +45,7 @@
               </div>
               <div v-else-if="isModelLoaded" class="model-status success">
                 <el-icon><CircleCheck /></el-icon>
-                <span>模型就绪</span>
+                <span>就绪</span>
               </div>
               <div style="flex:1;"></div>
 
@@ -529,6 +529,11 @@ const selectedRole = ref('none')
 const showAddRoleDialog = ref(false)
 const editingRole = ref(null)  // 正在编辑的角色，null=新建模式
 const isEditingRole = computed(() => editingRole.value !== null)
+const currentChatName = computed(() => {
+  if (!selectedModel.value) return '当前对话'
+  const parts = selectedModel.value.split('|')
+  return parts[1] || '当前对话'
+})
 const newRoleForm = reactive({
   name: '',
   content: ''
@@ -562,7 +567,7 @@ const roleplayParams = {
   alpha_decay: 0.99
 }
 
-const onRoleChange = (val) => {
+const onRoleChange = async (val) => {
   if (val === 'none') {
     // 恢复默认参数
     Object.assign(inferParams, defaultParams)
@@ -575,6 +580,29 @@ const onRoleChange = (val) => {
       Object.assign(inferParams, roleplayParams)
       isParamsSynced.value = false
       ElMessage.success(`已切换角色：${role.name}，推理参数已调整为角色扮演模式`)
+    }
+  }
+
+  // 持久化 role_id 到当前对话的 .json 文件
+  if (selectedModel.value) {
+    const parts = selectedModel.value.split('|')
+    const modelPath = parts[0]
+    const session = parts[1] || ''
+    const pathParts = modelPath.split('/')
+    if (pathParts.length >= 2) {
+      const folder = pathParts[0]
+      const model = pathParts[1]
+      try {
+        await axios.put('/api/data/chat-data', {
+          folder,
+          model,
+          session,
+          params: { ...inferParams },
+          role_id: val
+        })
+      } catch (e) {
+        console.error('保存角色信息失败', e)
+      }
     }
   }
 }
@@ -672,7 +700,7 @@ const inferParams = reactive({
   alpha_frequency: 0.2,
   alpha_presence: 0.2,
   alpha_decay: 0.996,
-  max_rounds: 15,
+  max_rounds: 5,
 })
 
 const isParamsSynced = ref(true)
@@ -688,7 +716,7 @@ const defaultParams = {
   alpha_frequency: 0.2,
   alpha_presence: 0.2,
   alpha_decay: 0.996,
-  max_rounds: 15,
+  max_rounds: 5,
 }
 
 const loadModels = async () => {
@@ -782,6 +810,10 @@ const onModelChange = async (value) => {
         }
       })
       scrollToBottom()
+
+      // 恢复角色选择
+      const savedRoleId = res.data['role_id']
+      selectedRole.value = savedRoleId && savedRoleId !== 'none' ? savedRoleId : 'none'
     } catch (error) {
       messages.value = []
     }
@@ -866,10 +898,11 @@ const saveChatData = async (folder, model, session, params) => {
       folder: folder,
       model: model,
       session: session,
-      params: params
+      params: params,
     })
   } catch (error) {
     console.error('保存对话数据失败', error)
+    ElMessage.error('保存对话数据失败，请查看控制台日志')
   }
 }
 
@@ -913,6 +946,7 @@ const clearHistory = async () => {
       session: session,
       dialogue_content: []
     })
+    await axios.post('/api/chat/reset-state', { model: selectedModel.value })
     messages.value = []
     ElMessage.success('历史记录已清空')
   } catch (error) {
@@ -1094,7 +1128,7 @@ const reEditLastMessage = () => {
 
 // 滑动窗口边界：模型记住的对话起始位置（镜像后端 build_prompt 逻辑）
 const windowBoundaryIndex = computed(() => {
-  const maxRounds = inferParams.max_rounds || 15
+  const maxRounds = inferParams.max_rounds || 5
   const msgs = messages.value
   if (msgs.length === 0) return -1
 
@@ -1217,7 +1251,7 @@ watch(() => inferParams, async () => {
         alpha_presence: inferParams.alpha_presence,
         alpha_decay: inferParams.alpha_decay,
         max_rounds: inferParams.max_rounds,
-      }
+      },
     })
 
     await axios.put('/api/chat/update-params', {
@@ -1659,4 +1693,4 @@ onUnmounted(() => {
   margin-top: 8px;
   width: 100%;
 }
-</style>
+</style>>

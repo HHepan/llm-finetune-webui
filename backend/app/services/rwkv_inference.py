@@ -14,7 +14,7 @@ from rwkv_tokenizer import RWKV_TOKENIZER
 
 import torch
 from .rwkv_x070_dual import RWKV_x070_Dual
-from rwkv.utils import PIPELINE, PIPELINE_ARGS
+from .rwkv_utils_patch import PIPELINE, PIPELINE_ARGS
 
 CHECKPOINT_DIR = Path("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/checkpoints")
 BASE_MODELS_DIR = Path("/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/base_models")
@@ -49,12 +49,20 @@ class RWKVInferenceManager:
         self.tokenizer = None
         self.pipeline = None
         self.current_model_path = None
-        self.round_count = 0
         self.current_params = DEFAULT_PARAMS.copy()
-        self.last_state = None
-        self.last_occurrence = None
-        self._checkpoint_state = None
-        self._checkpoint_occurrence = None
+        self._session_states: Dict[str, Dict] = {}  # session_key -> {state, occurrence, checkpoint_state, checkpoint_occurrence, round_count}
+
+    def _get_session_data(self, session_key: str) -> Dict:
+        """获取指定 session 的状态数据，不存在则自动初始化"""
+        if session_key not in self._session_states:
+            self._session_states[session_key] = {
+                'state': None,
+                'occurrence': None,
+                'checkpoint_state': None,
+                'checkpoint_occurrence': None,
+                'round_count': 0,
+            }
+        return self._session_states[session_key]
 
     def load_model(self, model_path: str, session: str = ''):
         """加载或切换模型"""
@@ -85,11 +93,8 @@ class RWKVInferenceManager:
         self.pipeline = PIPELINE(self.model, "rwkv_vocab_v20230424")
 
         self.current_model_path = model_path
-        self.round_count = 0
-        self.last_state = None
-        self.last_occurrence = None
-        self._checkpoint_state = None
-        self._checkpoint_occurrence = None
+        # 模型权重变了，所有 session 的状态全部失效
+        self._session_states.clear()
 
         # 加载对应的参数
         if session:
@@ -159,7 +164,7 @@ class RWKVInferenceManager:
             messages = messages[1:]  # 从对话中移除，后面单独追加
 
         # 2. 滑动窗口：从 current_params 读取最大保留轮数
-        max_rounds = self.current_params.get("max_rounds", 15)
+        max_rounds = self.current_params.get("max_rounds", 5)
         max_messages = max_rounds * 2 + 1  # max_rounds 个完整轮次 + 当前用户消息
         if len(messages) > max_messages:
             print(f"[RWKV] Sliding window: {len(messages)} messages > {max_messages}, trimming to {max_rounds} rounds")
@@ -188,9 +193,13 @@ class RWKVInferenceManager:
 
         print(f"[RWKV] Starting generation with prompt: {prompt[:100]}...")
 
+        # 取当前 session 的状态数据
+        session_key = session or 'default'
+        sd = self._get_session_data(session_key)
+
         # 保存检查点——记录"本轮生成开始前"的状态，用于重生成回滚
-        self._checkpoint_state = self.last_state
-        self._checkpoint_occurrence = self.last_occurrence
+        sd['checkpoint_state'] = sd['state']
+        sd['checkpoint_occurrence'] = sd['occurrence']
 
         # 如果有session，重新加载对应参数
         if session and folder and model_name:
@@ -246,14 +255,16 @@ class RWKVInferenceManager:
                     callback(char, None)
 
         try:
-            _, self.last_state, self.last_occurrence = self.pipeline.generate(
+            _, new_state, new_occurrence = self.pipeline.generate(
                 prompt,
                 token_count=max_tokens,
                 args=pipeline_args,
                 callback=my_print,
-                state=self.last_state,
-                occurrence=self.last_occurrence
+                state=sd['state'],
+                occurrence=sd['occurrence']
             )
+            sd['state'] = new_state
+            sd['occurrence'] = new_occurrence
         except StopIteration:
             pass
         finally:
@@ -264,10 +275,10 @@ class RWKVInferenceManager:
                         callback(char, None)
             pending_chars.clear()
 
-        self.round_count += 1
+        sd['round_count'] += 1
 
-        if self.round_count % clean_rounds == 0:
-            print(f"[RWKV] Clean rounds reached ({clean_rounds}), cleaning memory...")
+        if sd['round_count'] % clean_rounds == 0:
+            print(f"[RWKV] Clean rounds reached ({clean_rounds}) for session '{session_key}', cleaning memory...")
             gc.collect()
             torch.cuda.empty_cache()
 
@@ -277,11 +288,20 @@ class RWKVInferenceManager:
     def get_last_response(self) -> str:
         return getattr(self, 'last_response', '')
 
-    def rollback(self):
+    def rollback(self, session: str = ''):
         """回滚到上一个检查点（重生成时使用，让模型忘记上一轮的回答）"""
-        self.last_state = self._checkpoint_state
-        self.last_occurrence = self._checkpoint_occurrence
-        print(f"[RWKV] Rolled back to checkpoint state: {self._checkpoint_state is not None}")
+        session_key = session or 'default'
+        sd = self._get_session_data(session_key)
+        sd['state'] = sd['checkpoint_state']
+        sd['occurrence'] = sd['checkpoint_occurrence']
+        print(f"[RWKV] Rolled back checkpoint for session '{session_key}': has_state={sd['state'] is not None}")
+
+    def reset_state(self, session: str = ''):
+        """重置模型状态（清空对话时使用，让模型彻底忘记所有历史）"""
+        session_key = session or 'default'
+        if session_key in self._session_states:
+            del self._session_states[session_key]
+        print(f"[RWKV] State fully reset for session '{session_key}'")
 
 
 _manager = RWKVInferenceManager()

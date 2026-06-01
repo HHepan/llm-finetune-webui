@@ -24,7 +24,7 @@ def get_base_model_list() -> List[str]:
     model_extensions = {'.pth', '.bin', '.safetensors', '.pt', '.ckpt', '.h5', '.model'}
     models = [
         f.name for f in base_models_dir.iterdir()
-        if (f.is_dir() or f.suffix.lower() in model_extensions)
+        if f.is_file() and f.suffix.lower() in model_extensions
         and not f.name.startswith('.')
     ]
     return sorted(models)
@@ -291,7 +291,7 @@ def _get_chat_data_dir(folder: str) -> Path:
     return CHECKPOINT_DIR / folder / "chat-data"
 
 
-def save_chat_data(folder: str, model: str, session: str, params: dict) -> dict:
+def save_chat_data(folder: str, model: str, session: str, params: dict, role_id: Optional[str] = None) -> dict:
     chat_data_dir = _get_chat_data_dir(folder)
     if not chat_data_dir.exists():
         chat_data_dir.mkdir(parents=True, exist_ok=True)
@@ -306,9 +306,12 @@ def save_chat_data(folder: str, model: str, session: str, params: dict) -> dict:
     if file_path.exists():
         with open(file_path, 'r', encoding='utf-8') as f:
             old_data = json.load(f)
+        # 未传入 role_id 时保留原有的值
+        actual_role_id = role_id if role_id is not None else old_data.get('role_id', 'none')
         chat_data = {
             'model': old_data['model'],
             'session': session,
+            'role_id': actual_role_id,
             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'params': params,
             'dialogue-content': old_data.get('dialogue-content', [])
@@ -317,6 +320,7 @@ def save_chat_data(folder: str, model: str, session: str, params: dict) -> dict:
         chat_data = {
             'model': f"{folder}/{model}",
             'session': session,
+            'role_id': role_id if role_id is not None else 'none',
             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'params': params,
             'dialogue-content': []
@@ -394,6 +398,7 @@ def get_chat_model_list() -> List[Dict[str, Any]]:
                                 models.append({
                                     'model': data['model'],
                                     'session': session,
+                                    'role_id': data.get('role_id', 'none'),
                                     'created_at': data.get('created_at', ''),
                                     'params': data.get('params', {})
                                 })
@@ -413,6 +418,7 @@ def get_chat_model_list() -> List[Dict[str, Any]]:
                             models.append({
                                 'model': data['model'],
                                 'session': session,
+                                'role_id': data.get('role_id', 'none'),
                                 'created_at': data.get('created_at', ''),
                                 'params': data.get('params', {})
                             })

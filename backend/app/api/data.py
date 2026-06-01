@@ -32,12 +32,13 @@ class ChatDataRequest(BaseModel):
     session: str = ''
     params: Dict[str, Any] = {}
     dialogue_content: List[Dict[str, str]] = []
+    role_id: Optional[str] = None
 
 
 @router.post("/chat-data")
 async def save_chat_data(req: ChatDataRequest) -> Dict:
     try:
-        result = file_service.save_chat_data(req.folder, req.model, req.session, req.params)
+        result = file_service.save_chat_data(req.folder, req.model, req.session, req.params, role_id=req.role_id)
         return {"message": "保存成功", "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -45,7 +46,7 @@ async def save_chat_data(req: ChatDataRequest) -> Dict:
 @router.put("/chat-data")
 async def update_chat_params(req: ChatDataRequest) -> Dict:
     try:
-        result = file_service.save_chat_data(req.folder, req.model, req.session, req.params)
+        result = file_service.save_chat_data(req.folder, req.model, req.session, req.params, role_id=req.role_id)
         return {"message": "更新成功", "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -83,7 +84,7 @@ async def update_dialogue_content(req: ChatDataRequest) -> Dict:
 @router.put("/chat-data")
 async def update_chat_params(req: ChatDataRequest) -> Dict:
     try:
-        result = file_service.save_chat_data(req.folder, req.model, req.params)
+        result = file_service.save_chat_data(req.folder, req.model, req.session, req.params, role_id=req.role_id)
         return {"message": "更新成功", "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

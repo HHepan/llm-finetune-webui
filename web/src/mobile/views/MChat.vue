@@ -72,7 +72,7 @@
     <!-- 操作按钮组 -->
     <div class="m-chat-toolbar">
       <div class="toolbar-row">
-        <el-button size="small" plain @click="showMoreActions = true">更多操作</el-button>
+        <el-button size="small" plain @click="showMoreActions = true">更多</el-button>
         <el-button size="small" plain @click="regenerateLastMessage" :disabled="!canRegenerate">重生成</el-button>
         <el-button size="small" plain @click="reEditLastMessage" :disabled="!canReEdit">改提问</el-button>
         <el-button
@@ -257,7 +257,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
@@ -301,20 +301,32 @@ const inferParams = reactive({
   model: '', max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
   alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
-  max_rounds: 15
+  max_rounds: 5
 })
 
 const defaultParams = {
   max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
   alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
-  max_rounds: 15
+  max_rounds: 5
 }
 
 const roleplayParams = {
   temperature: 0.6, top_p: 0.7, top_k: 0,
   alpha_frequency: 0.2, alpha_presence: 2.0, alpha_decay: 0.99
 }
+
+import { currentChatName } from '../stores/chat-store'
+
+// 监听 selectedModel 变化，同步对话名到 header
+watch(selectedModel, (val) => {
+  if (!val) {
+    currentChatName.value = ''
+  } else {
+    const parts = val.split('|')
+    currentChatName.value = parts[1] || ''
+  }
+})
 
 // ==== 辅助方法 ====
 const scrollToBottom = () => {
@@ -330,7 +342,7 @@ const formatMessage = (content) => {
 
 // 滑动窗口边界：模型记住的对话起始位置（镜像后端 build_prompt 逻辑）
 const windowBoundaryIndex = computed(() => {
-  const maxRounds = inferParams.max_rounds || 15
+  const maxRounds = inferParams.max_rounds || 5
   const msgs = messages.value
   if (msgs.length === 0) return -1
 
@@ -426,6 +438,10 @@ const onModelChange = async (value) => {
         }
       })
       scrollToBottom()
+
+      // 恢复角色选择
+      const savedRoleId = res.data['role_id']
+      selectedRole.value = savedRoleId && savedRoleId !== 'none' ? savedRoleId : 'none'
     } catch { messages.value = [] }
   }
 }
@@ -465,7 +481,10 @@ const onNewChatFolderChange = async (val) => {
 const saveChatData = async (folder, model, session, params) => {
   try {
     await axios.post('/api/data/chat-data', { folder, model, session, params })
-  } catch { console.error('保存对话数据失败') }
+  } catch (error) {
+    console.error('保存对话数据失败', error)
+    ElMessage.error('保存对话数据失败，请查看控制台日志')
+  }
 }
 
 const handleNewChat = () => {
@@ -518,6 +537,7 @@ const clearHistory = async () => {
     const folder = pathParts[0]
     const modelName = pathParts[1].replace('.pth', '')
     await axios.put('/api/data/chat-data/dialogue', { folder, model: modelName, session, dialogue_content: [] })
+    await axios.post('/api/chat/reset-state', { model: selectedModel.value })
     messages.value = []
     ElMessage.success('已清空')
   } catch { ElMessage.error('清空失败') }
@@ -531,7 +551,7 @@ const loadRoleList = async () => {
   } catch { console.error('加载角色失败') }
 }
 
-const onRoleChange = (val) => {
+const onRoleChange = async (val) => {
   isParamsSynced.value = false
   if (val === 'none') {
     Object.assign(inferParams, defaultParams)
@@ -543,6 +563,30 @@ const onRoleChange = (val) => {
       ElMessage.success(`已切换角色：${role.name}，推理参数已调整为角色扮演模式`)
     }
   }
+
+  // 持久化 role_id 到当前对话的 .json 文件
+  if (selectedModel.value) {
+    const parts = selectedModel.value.split('|')
+    const modelPath = parts[0]
+    const session = parts[1] || ''
+    const pathParts = modelPath.split('/')
+    if (pathParts.length >= 2) {
+      const folder = pathParts[0]
+      const model = pathParts[1]
+      try {
+        await axios.put('/api/data/chat-data', {
+          folder,
+          model,
+          session,
+          params: { ...inferParams },
+          role_id: val
+        })
+      } catch (e) {
+        console.error('保存角色信息失败', e)
+      }
+    }
+  }
+
   // 参数应用完毕后标记为就绪
   nextTick(() => { isParamsSynced.value = true })
 }
