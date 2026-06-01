@@ -68,9 +68,9 @@ async def chat(request: ChatRequest):
 
         all_messages = request.messages + [{"role": "user", "content": request.message}]
         prompt = manager.build_prompt(all_messages, thinking_mode=request.thinking_mode)
-        # print(f"===============================================================")
-        # print(f"[CHAT API] PROMPT:\n{prompt}\n[END PROMPT]")
-        # print(f"===============================================================")
+        print(f"===============================================================")
+        print(f"[CHAT API] PROMPT:\n{prompt}\n[END PROMPT]")
+        print(f"===============================================================")
         queue = asyncio.Queue()
         stop_event = asyncio.Event()
 

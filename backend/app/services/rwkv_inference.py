@@ -1,6 +1,7 @@
 import os
 import gc
 import json
+import copy
 from typing import Dict, Any, Callable, Optional
 from pathlib import Path
 
@@ -313,4 +314,6 @@ RWKVInferenceManager()
 
 
 def get_inference_manager() -> RWKVInferenceManager:
+    return _manager
+VInferenceManager:
     return _manager
