@@ -198,7 +198,7 @@ class RWKVInferenceManager:
         session_key = session or 'default'
         sd = self._get_session_data(session_key)
 
-        # 保存检查点——深拷贝当前 state/occurrence，确保 checkpoint 独立于后续的原地修改
+        # 保存检查点——深拷贝当前 state（occurrence 每轮重置，无需备份）
         sd['checkpoint_state'] = copy.deepcopy(sd['state'])
         sd['checkpoint_occurrence'] = copy.deepcopy(sd['occurrence'])
 
@@ -256,16 +256,16 @@ class RWKVInferenceManager:
                     callback(char, None)
 
         try:
-            _, new_state, new_occurrence = self.pipeline.generate(
+            _, new_state, _ = self.pipeline.generate(
                 prompt,
                 token_count=max_tokens,
                 args=pipeline_args,
                 callback=my_print,
                 state=sd['state'],
-                occurrence=sd['occurrence']
+                occurrence=None  # occurrence 每轮重置，防止跨轮惩罚过载
             )
             sd['state'] = new_state
-            sd['occurrence'] = new_occurrence
+            sd['occurrence'] = None  # 重置 occurrence，确保下轮从空开始
         except StopIteration:
             pass
         finally:
@@ -294,7 +294,6 @@ class RWKVInferenceManager:
         session_key = session or 'default'
         sd = self._get_session_data(session_key)
         sd['state'] = sd['checkpoint_state']
-        sd['occurrence'] = sd['checkpoint_occurrence']
         print(f"[RWKV] Rolled back checkpoint for session '{session_key}': has_state={sd['state'] is not None}")
 
     def reset_state(self, session: str = ''):
@@ -303,6 +302,14 @@ class RWKVInferenceManager:
         if session_key in self._session_states:
             del self._session_states[session_key]
         print(f"[RWKV] State fully reset for session '{session_key}'")
+
+
+_manager = RWKVInferenceManager()
+
+
+def get_inference_manager() -> RWKVInferenceManager:
+    return _manager
+on_key}'")
 
 
 _manager = RWKVInferenceManager()
