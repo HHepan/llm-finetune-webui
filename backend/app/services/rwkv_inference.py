@@ -309,11 +309,3 @@ _manager = RWKVInferenceManager()
 
 def get_inference_manager() -> RWKVInferenceManager:
     return _manager
-on_key}'")
-
-
-_manager = RWKVInferenceManager()
-
-
-def get_inference_manager() -> RWKVInferenceManager:
-    return _manager
