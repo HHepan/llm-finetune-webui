@@ -27,6 +27,10 @@ class ChatRequest(BaseModel):
     thinking_mode: bool = False
 
 
+class ResetStateRequest(BaseModel):
+    model: str
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """
@@ -361,4 +365,3 @@ async def regenerate(request: ChatRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-00, detail=str(e))
