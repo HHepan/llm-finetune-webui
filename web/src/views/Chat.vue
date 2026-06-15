@@ -370,7 +370,7 @@
             </el-form-item>
 
             <el-form-item label="思考模式">
-              <el-switch v-model="thinkingMode" active-text="开启" inactive-text="关闭" />
+              <el-switch v-model="inferParams.thinking_mode" active-text="开启" inactive-text="关闭" />
             </el-form-item>
 
             <el-form-item label="max-rounds">
@@ -459,7 +459,6 @@ const isModelLoaded = ref(false)
 const modelLoadError = ref('')
 let displayInterval = null
 let isThinking = ref(false)
-const thinkingMode = ref(false)
 
 const showRightPanel = ref(true)
 
@@ -701,6 +700,7 @@ const inferParams = reactive({
   alpha_presence: 0.2,
   alpha_decay: 0.996,
   max_rounds: 5,
+  thinking_mode: false,
 })
 
 const isParamsSynced = ref(true)
@@ -717,6 +717,7 @@ const defaultParams = {
   alpha_presence: 0.2,
   alpha_decay: 0.996,
   max_rounds: 5,
+  thinking_mode: false,
 }
 
 const loadModels = async () => {
@@ -765,7 +766,7 @@ const onModelChange = async (value) => {
   }
 
   // 切换模型时默认关闭思考模式
-  thinkingMode.value = false
+  inferParams.thinking_mode = false
 
   isModelLoading.value = true
   isModelLoaded.value = false
@@ -1032,7 +1033,7 @@ const generateResponse = async (userMessageContent, isNewMessage = true, isRegen
           alpha_decay: inferParams.alpha_decay,
           max_rounds: inferParams.max_rounds,
         },
-        thinking_mode: thinkingMode.value,
+        thinking_mode: inferParams.thinking_mode,
       })
     })
 
@@ -1264,6 +1265,7 @@ watch(() => inferParams, async () => {
         alpha_presence: inferParams.alpha_presence,
         alpha_decay: inferParams.alpha_decay,
         max_rounds: inferParams.max_rounds,
+        thinking_mode: inferParams.thinking_mode,
       },
     })
 
@@ -1278,6 +1280,7 @@ watch(() => inferParams, async () => {
         alpha_presence: inferParams.alpha_presence,
         alpha_decay: inferParams.alpha_decay,
         max_rounds: inferParams.max_rounds,
+        thinking_mode: inferParams.thinking_mode,
       }
     })
 
