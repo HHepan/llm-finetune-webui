@@ -934,6 +934,19 @@ const clearHistory = async () => {
     return
   }
   try {
+    await ElMessageBox.confirm(
+      '确定要清空当前对话的历史记录吗？此操作不可撤销。',
+      '确认清空',
+      {
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+  } catch {
+    return
+  }
+  try {
     const parts = selectedModel.value.split('|')
     const modelPath = parts[0]
     const session = parts[1] || ''

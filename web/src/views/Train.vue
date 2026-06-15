@@ -15,7 +15,8 @@
 
     <!-- 训练记录页面 -->
     <div v-show="activeTab === 'record'" class="record-view">
-      <el-table v-if="trainRecords.length > 0" :data="paginatedRecords" border stripe style="width: 100%">
+      <div v-loading="loading" class="records-container">
+        <el-table v-if="trainRecords.length > 0" :data="paginatedRecords" border stripe style="width: 100%">
         <el-table-column prop="time" label="训练时间" width="180" align="center" />
         <el-table-column prop="folder_name" label="保存位置" width="120" />
         <el-table-column prop="base_model" label="基底模型" width="220" />
@@ -56,6 +57,7 @@
       </el-table>
 
       <el-empty v-if="trainRecords.length === 0" description="暂无训练记录" />
+      </div>
 
       <div v-if="trainRecords.length > 0" class="pagination-container">
         <el-pagination
@@ -566,6 +568,7 @@ const detailLossChartRef = ref(null)
 let lossChartInstance = null
 let detailLossChartInstance = null
 
+const loading = ref(false)
 const trainRecords = ref([])
 
 const currentPage = ref(1)
@@ -712,11 +715,16 @@ const onBaseModelChange = () => {
 }
 
 const loadTrainRecords = async () => {
+  loading.value = true
   try {
     const res = await axios.get('/api/train/records')
     trainRecords.value = res.data
+    ElMessage.success(`成功加载 ${res.data.length} 条训练记录`)
   } catch (error) {
     console.error('获取训练记录列表失败', error)
+    ElMessage.error(error.response?.data?.detail || '加载训练记录失败')
+  } finally {
+    loading.value = false
   }
 }
 
