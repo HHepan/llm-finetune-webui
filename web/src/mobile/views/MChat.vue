@@ -77,11 +77,11 @@
         <el-button size="small" plain @click="reEditLastMessage" :disabled="!canReEdit">改提问</el-button>
         <el-button
           size="small"
-          :plain="!thinkingMode"
-          :type="thinkingMode ? 'primary' : 'default'"
-          @click="thinkingMode = !thinkingMode"
+          :plain="!inferParams.thinking_mode"
+          :type="inferParams.thinking_mode ? 'primary' : 'default'"
+          @click="inferParams.thinking_mode = !inferParams.thinking_mode"
           class="m-thinking-btn"
-          :class="{ 'is-lit': thinkingMode }"
+          :class="{ 'is-lit': inferParams.thinking_mode }"
         >
           <span class="m-thinking-btn-icon">💭</span>
           <span>思考</span>
@@ -270,9 +270,11 @@ const isModelLoading = ref(false)
 const isModelLoaded = ref(false)
 const modelLoadError = ref('')
 const isParamsSynced = ref(true)
+const isSavingParams = ref(false)
+const isLoadingParams = ref(false)
 const isStreaming = ref(false)
 const isThinking = ref(false)
-const thinkingMode = ref(false)
+
 const messagesRef = ref(null)
 let displayInterval = null
 let viewportHandler = null
@@ -325,14 +327,16 @@ const inferParams = reactive({
   model: '', max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
   alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
-  max_rounds: 5
+  max_rounds: 5,
+  thinking_mode: false
 })
 
 const defaultParams = {
   max_tokens: 2048, clean_rounds: 10,
   temperature: 1, top_p: 0.85, top_k: 0,
   alpha_frequency: 0.2, alpha_presence: 0.2, alpha_decay: 0.996,
-  max_rounds: 5
+  max_rounds: 5,
+  thinking_mode: false
 }
 
 const roleplayParams = {
@@ -351,6 +355,64 @@ watch(selectedModel, (val) => {
     currentChatName.value = parts[1] || ''
   }
 })
+
+// 监听 inferParams 变化，自动持久化到 JSON 文件
+watch(() => inferParams, async () => {
+  if (!selectedModel.value || isParamsSynced.value === false || isLoadingParams.value) return
+
+  const parts = selectedModel.value.split('|')
+  const modelPath = parts[0]
+  const session = parts[1] || ''
+
+  const pathParts = modelPath.split('/')
+  if (pathParts.length < 2) return
+
+  const folder = pathParts[0]
+  const model = pathParts[1]
+
+  isSavingParams.value = true
+
+  try {
+    await axios.put('/api/data/chat-data', {
+      folder: folder,
+      model: model,
+      session: session,
+      params: {
+        max_tokens: inferParams.max_tokens,
+        clean_rounds: inferParams.clean_rounds,
+        temperature: inferParams.temperature,
+        top_p: inferParams.top_p,
+        top_k: inferParams.top_k,
+        alpha_frequency: inferParams.alpha_frequency,
+        alpha_presence: inferParams.alpha_presence,
+        alpha_decay: inferParams.alpha_decay,
+        max_rounds: inferParams.max_rounds,
+        thinking_mode: inferParams.thinking_mode,
+      },
+    })
+
+    await axios.put('/api/chat/update-params', {
+      params: {
+        max_tokens: inferParams.max_tokens,
+        clean_rounds: inferParams.clean_rounds,
+        temperature: inferParams.temperature,
+        top_p: inferParams.top_p,
+        top_k: inferParams.top_k,
+        alpha_frequency: inferParams.alpha_frequency,
+        alpha_presence: inferParams.alpha_presence,
+        alpha_decay: inferParams.alpha_decay,
+        max_rounds: inferParams.max_rounds,
+        thinking_mode: inferParams.thinking_mode,
+      }
+    })
+
+    isParamsSynced.value = true
+  } catch (error) {
+    console.error('保存参数失败', error)
+  } finally {
+    isSavingParams.value = false
+  }
+}, { deep: true })
 
 // ==== 辅助方法 ====
 const scrollToBottom = () => {
@@ -393,10 +455,13 @@ const loadModels = async () => {
     const res = await axios.get('/api/data/chat-models')
     modelList.value = res.data
     if (modelList.value.length > 0) {
+      isLoadingParams.value = true
       const first = modelList.value[0]
       selectedModel.value = first.model + '|' + (first.session || '')
       inferParams.model = first.model
       if (first.params) Object.assign(inferParams, first.params)
+      isParamsSynced.value = true
+      isLoadingParams.value = false
       await onModelChange(selectedModel.value)
     } else {
       selectedModel.value = ''
@@ -412,15 +477,18 @@ const loadModels = async () => {
 
 const onModelChange = async (value) => {
   // 切换模型时默认关闭思考模式
-  thinkingMode.value = false
+  inferParams.thinking_mode = false
 
   const parts = value.split('|')
   const modelPath = parts[0]
   const session = parts[1] || ''
   const item = modelList.value.find(i => i.model === modelPath && i.session === session)
   if (item) {
+    isLoadingParams.value = true
     inferParams.model = modelPath
     if (item.params) Object.assign(inferParams, item.params)
+    isParamsSynced.value = true
+    isLoadingParams.value = false
   }
   isModelLoading.value = true
   isModelLoaded.value = false
@@ -788,7 +856,7 @@ const generateResponse = async (userMessageContent, isNewMessage = true, isRegen
           alpha_decay: inferParams.alpha_decay,
           max_rounds: inferParams.max_rounds
         },
-        thinking_mode: thinkingMode.value
+        thinking_mode: inferParams.thinking_mode
       })
     })
 
