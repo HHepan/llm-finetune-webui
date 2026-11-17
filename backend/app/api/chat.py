@@ -31,8 +31,7 @@ class ResetStateRequest(BaseModel):
     model: str
 
 
-@router.post("/chat")
-async def chat(request: ChatRequest):
+async def _chat_stream(request: ChatRequest):
     """
     流式对话接口
     
@@ -77,25 +76,21 @@ async def chat(request: ChatRequest):
         print(f"===============================================================")
         queue = asyncio.Queue()
         stop_event = asyncio.Event()
+        token_buf: list = []
+        temp_file_path = (
+            str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
+            if folder == "base_models"
+            else str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
+        )
 
         def sync_callback(token: str, perplexity: float = None):
-            # print(f"[CHAT API] Sending token to queue: {token}")
-
-            if folder == "base_models":
-                temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
-            else:
-                temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
-            with open(temp_file_path, 'a', encoding='utf-8') as f:
-                f.write(token)
-
+            # 原实现：每个 token 都 open/append/close 一次，生成 200 token 就是
+            # 200 次磁盘 I/O，会明显拖慢流式输出节奏。改为内存累积，结束时一次落盘。
+            token_buf.append(token)
             queue.put_nowait((token, perplexity))
 
         def run_generation():
             try:
-                if folder == "base_models":
-                    temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
-                else:
-                    temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
                 with open(temp_file_path, 'w', encoding='utf-8') as f:
                     pass
 
@@ -105,13 +100,21 @@ async def chat(request: ChatRequest):
                     callback=sync_callback,
                     folder=folder,
                     model_name=model_file_without_ext,
-                    session=session
+                    session=session,
+                    thinking_mode=request.thinking_mode
                 )
                 print("[CHAT API] Generation completed")
             except Exception as e:
                 print(f"[CHAT API] Generation error: {e}")
                 queue.put_nowait(("__error__", str(e)))
             finally:
+                # 一次性把累积的 token 写入 temp.txt
+                try:
+                    if token_buf:
+                        with open(temp_file_path, 'w', encoding='utf-8') as f:
+                            f.write("".join(token_buf))
+                except Exception as e:
+                    print(f"[CHAT API] Failed to flush temp.txt: {e}")
                 print("[CHAT API] Setting stop event")
                 stop_event.set()
 
@@ -128,7 +131,6 @@ async def chat(request: ChatRequest):
                     yield f"data: {error_data}\n\n"
                     break
                 data_str = json.dumps({"content": token}, ensure_ascii=False)
-                data_str = data_str.strip('"')
                 # print(f"[CHAT API] Token: {token}")
                 # print(f"[CHAT API] Data string before yield: {data_str}")
                 # print(f"[CHAT API] Yielding data: data: {data_str}\\n\\n")
@@ -174,6 +176,25 @@ async def chat(request: ChatRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat")
+async def chat(request: ChatRequest):
+    """SSE 流式对话入口。
+
+    注意：_chat_stream 是 async generator，必须用 StreamingResponse 包装，
+    否则 FastAPI 会把每个 yield 的字符串当普通对象做 JSON 序列化，
+    前端收到的每条就变成 "data: ..." （带外层引号），无法解析。
+    """
+    return StreamingResponse(
+        _chat_stream(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 class UpdateParamsRequest(BaseModel):
@@ -282,22 +303,20 @@ async def regenerate(request: ChatRequest):
 
         queue = asyncio.Queue()
         stop_event = asyncio.Event()
+        token_buf: list = []
+        temp_file_path = (
+            str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
+            if folder == "base_models"
+            else str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
+        )
 
         def sync_callback(token: str, perplexity: float = None):
-            if folder == "base_models":
-                temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
-            else:
-                temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
-            with open(temp_file_path, 'a', encoding='utf-8') as f:
-                f.write(token)
+            # 同上：内存累积，避免每 token 一次磁盘 I/O
+            token_buf.append(token)
             queue.put_nowait((token, perplexity))
 
         def run_generation():
             try:
-                if folder == "base_models":
-                    temp_file_path = str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
-                else:
-                    temp_file_path = str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
                 with open(temp_file_path, 'w', encoding='utf-8') as f:
                     pass
 
@@ -306,13 +325,21 @@ async def regenerate(request: ChatRequest):
                     callback=sync_callback,
                     folder=folder,
                     model_name=model_file_without_ext,
-                    session=session
+                    session=session,
+                    thinking_mode=request.thinking_mode
                 )
                 print("[CHAT API] Regeneration completed")
             except Exception as e:
                 print(f"[CHAT API] Regeneration error: {e}")
                 queue.put_nowait(("__error__", str(e)))
             finally:
+                # 一次性把累积的 token 写入 temp.txt
+                try:
+                    if token_buf:
+                        with open(temp_file_path, 'w', encoding='utf-8') as f:
+                            f.write("".join(token_buf))
+                except Exception as e:
+                    print(f"[CHAT API] Failed to flush temp.txt: {e}")
                 stop_event.set()
 
         import threading
@@ -327,7 +354,6 @@ async def regenerate(request: ChatRequest):
                     yield f"data: {error_data}\n\n"
                     break
                 data_str = json.dumps({"content": token}, ensure_ascii=False)
-                data_str = data_str.strip('"')
                 yield f'data: {data_str}\n\n'
             except asyncio.TimeoutError:
                 continue
