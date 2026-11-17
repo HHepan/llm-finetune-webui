@@ -100,7 +100,8 @@ async def _chat_stream(request: ChatRequest):
                     callback=sync_callback,
                     folder=folder,
                     model_name=model_file_without_ext,
-                    session=session
+                    session=session,
+                    thinking_mode=request.thinking_mode
                 )
                 print("[CHAT API] Generation completed")
             except Exception as e:
@@ -324,7 +325,8 @@ async def regenerate(request: ChatRequest):
                     callback=sync_callback,
                     folder=folder,
                     model_name=model_file_without_ext,
-                    session=session
+                    session=session,
+                    thinking_mode=request.thinking_mode
                 )
                 print("[CHAT API] Regeneration completed")
             except Exception as e:

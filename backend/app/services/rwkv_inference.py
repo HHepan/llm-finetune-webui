@@ -25,6 +25,10 @@ VOCAB_PATH = "/home/lijiahao/MachineLr/hepan/llm-finetune-webui/workspace/tools/
 #   temperature=1, top_p=0.3, top_k=0
 #   alpha_presence=0, alpha_frequency=1, alpha_decay=0.996
 #   newline_adj=0（Runner 默认不加权，仅在特定场景调）
+# thinking tags for RWKV-7 G1x reasoning models
+THINK_START = '<' + 'think' + '>'
+THINK_END = '<' + '/think' + '>'
+
 DEFAULT_PARAMS = {
     "max_tokens": 2048,
     "clean_rounds": 10,
@@ -238,7 +242,7 @@ class RWKVInferenceManager:
         except Exception:
             return 0
 
-    def generate(self, prompt: str, callback: Callable[[str, Optional[float]], None], folder: str = None, model_name: str = None, session: str = ''):
+    def generate(self, prompt: str, callback: Callable[[str, Optional[float]], None], folder: str = None, model_name: str = None, session: str = '', thinking_mode: bool = False):
         """流式生成回复"""
         if self.model is None:
             raise RuntimeError("Model not loaded. Please call load_model first.")
@@ -317,34 +321,39 @@ class RWKVInferenceManager:
         is_truncated = [False]
         stop_sequences = ["\n\nUser:", "\nAssistant:", "\n\nAssistant:", "\n\n\nAssistant:", "\nAss", "\n\nAss", "\n\n\nAss"]
         stop_detected = [False]
-        pending_chars = []
+
+
+        pending_text = []
 
         def my_print(s):
             if stop_detected[0]:
                 return
 
-            pending_chars.append(s)
+            pending_text.append(s)
+            full_text = ''.join(pending_text)
 
-            full_text = ''.join(pending_chars)
-
+            # stop sequence detection on the full buffer
             for seq in stop_sequences:
                 if seq in full_text:
                     is_truncated[0] = True
                     pos = full_text.find(seq)
-                    for i in range(pos):
-                        char = pending_chars[i]
+                    for char in full_text[:pos]:
                         if char != '\n' or output:
                             output.append(char)
                             callback(char, None)
                     stop_detected[0] = True
-                    pending_chars.clear()
+                    pending_text.clear()
                     raise StopIteration
 
-            if len(pending_chars) >= 10:
-                char = pending_chars.pop(0)
-                if char != '\n' or output:
-                    output.append(char)
-                    callback(char, None)
+            # keep a tail window long enough for the longest stop sequence
+            if len(full_text) > 12:
+                head = full_text[:-12]
+                pending_text.clear()
+                pending_text.append(full_text[-12:])
+                for char in head:
+                    if char != '\n' or output:
+                        output.append(char)
+                        callback(char, None)
 
         try:
             raw_out, new_state, _ = self.pipeline.generate(
@@ -358,16 +367,26 @@ class RWKVInferenceManager:
             sd['state'] = new_state
             sd['occurrence'] = None  # 重置 occurrence，确保下轮从空开始
             # 记录 state 中已吃进的完整文本：复用前缀 + 本轮 prompt 全部 + 模型原始输出
-            sd['fed_text'] = fed[:base_chars] + prompt[base_chars:] + (raw_out or '')
+            # normalize fed_text to match build_prompt reconstruction
+            prompt_prefix = fed[:base_chars] + prompt[base_chars:]
+            raw = raw_out or ''
+            if thinking_mode and raw and THINK_END in raw:
+                think_part, answer_part = raw.split(THINK_END, 1)
+                sd['fed_text'] = (
+                    prompt_prefix + "\n" + think_part.strip() + "\n"
+                    + THINK_END + "\n" + answer_part.strip()
+                )
+            else:
+                sd['fed_text'] = prompt_prefix + raw
         except StopIteration:
             pass
         finally:
             if not stop_detected[0]:
-                for char in pending_chars:
+                for char in ''.join(pending_text):
                     if char != '\n' or output:
                         output.append(char)
                         callback(char, None)
-            pending_chars.clear()
+            pending_text.clear()
 
         sd['round_count'] += 1
 
