@@ -26,7 +26,12 @@ _VOCAB_PATH = os.path.join(_RWKV_DIR, 'rwkv_vocab_v20230424.txt')
 
 
 class PIPELINE_ARGS():
-    def __init__(self, temperature=1.0, top_p=0.85, top_k=0, alpha_frequency=0.2, alpha_presence=0.2, alpha_decay=0.996, token_ban=[], token_stop=[], chunk_len=256):
+    # 默认值对齐 RWKV-Runner 的 TextRWKV 实现：
+    #   temperature=1, top_p=0.3, top_k=0
+    #   alpha_presence=0, alpha_frequency=1, alpha_decay=0.996
+    # 说明：presence=0 表示「不惩罚首次出现的 token」，frequency=1 表示
+    # 「高频重复的 token 才重罚」。这样模型的用词不会被过早压制，表达更自然。
+    def __init__(self, temperature=1.0, top_p=0.3, top_k=0, alpha_frequency=1.0, alpha_presence=0.0, alpha_decay=0.996, token_ban=[], token_stop=[], chunk_len=256):
         self.temperature = temperature
         self.top_p = top_p
         self.top_k = top_k
@@ -36,6 +41,32 @@ class PIPELINE_ARGS():
         self.token_ban = token_ban  # ban the generation of some tokens
         self.token_stop = token_stop  # stop generation whenever you see any token here
         self.chunk_len = chunk_len  # split input into chunks to save VRAM (shorter -> slower)
+
+
+# ── 对齐 RWKV-Runner 的 token 级别约束 ────────────────────────────────────
+# END_OF_LINE: v7/World 词表里 "\n" 的 token id，用于 newline_adj 调整换行概率
+END_OF_LINE = 11
+EOS_ID = 0
+
+# 硬禁止连续重复的标点（上一个 token 是这些之一时，禁止再次生成同一个）
+_AVOID_REPEAT_CHARS = "，：？！"
+# 这些 token 不参与重复惩罚统计（标点/空白/数字本身就该高频出现）
+_AVOID_PENALTY_CHARS = '\n,.:?!，。：？！"“”<>[]{}/\\|;；~`@#$%^&*()_+-=0123456789 '
+
+
+def _build_token_sets(tokenizer):
+    """按 Runner 的规则构建 AVOID_REPEAT / AVOID_PENALTY 两个 token id 集合。"""
+    avoid_repeat, avoid_penalty = set(), set()
+    for ch in _AVOID_REPEAT_CHARS:
+        ids = tokenizer.encode(ch)
+        if len(ids) == 1:
+            avoid_repeat.add(ids[0])
+    for ch in _AVOID_PENALTY_CHARS:
+        ids = tokenizer.encode(ch)
+        if len(ids) == 1:
+            avoid_penalty.add(ids[0])
+    return avoid_repeat, avoid_penalty
+
 
 
 class PIPELINE():
@@ -105,23 +136,67 @@ class PIPELINE():
             return int(out)
 
     def generate(self, ctx, token_count=100, args=PIPELINE_ARGS(), callback=None, state=None, occurrence=None):
+        """流式生成。行为对齐 RWKV-Runner 的 TextRWKV.generate：
+
+        1. newline_adj       —— 每次 forward 后调整换行 token 的概率
+        2. AVOID_REPEAT      —— 若上个 token 是「，：？！」，硬禁止连续重复
+        3. AVOID_PENALTY     —— 标点/空白/数字不参与重复惩罚统计
+        """
         all_tokens = []
         out_last = 0
         out_str = ''
         if occurrence is None:
             occurrence = {}
+
+        # 懒构建 token 集合（依赖具体 tokenizer，只需算一次）
+        if not hasattr(self, '_avoid_repeat_tokens'):
+            self._avoid_repeat_tokens, self._avoid_penalty_tokens = _build_token_sets(self.tokenizer)
+
+        # 历史 prompt 的 token（用于 global_penalty：incremental prefill 时仅含新增部分）
+        ctx_tokens = ctx if isinstance(ctx, (list, tuple)) else self.encode(ctx)
+
         for i in range(token_count):
 
             # forward & adjust prob.
-            tokens = self.encode(ctx) if i == 0 else [token]
+            # 支持传入已 tokenize 的 list，便于做增量 prefill（省去重复 encode）
+            if i == 0:
+                tokens = ctx_tokens
+            else:
+                tokens = [token]
             while len(tokens) > 0:
                 out, state = self.model.forward(tokens[:args.chunk_len], state)
                 tokens = tokens[args.chunk_len:]
 
             for n in args.token_ban:
                 out[n] = -float('inf')
+
+            # ── global_penalty：把 prompt 里出现过的 token 计入惩罚（跳过标点/数字/空白）
+            # 对齐 Runner 的 adjust_forward_logits(i==0 分支)
+            if getattr(args, 'global_penalty', False) and i == 0:
+                for tk in ctx_tokens:
+                    tk = int(tk)
+                    if tk not in self._avoid_penalty_tokens:
+                        if tk not in occurrence:
+                            occurrence[tk] = 1
+                        else:
+                            occurrence[tk] += 1
+
             for n in occurrence:
                 out[n] -= (args.alpha_presence + occurrence[n] * args.alpha_frequency)
+
+            # ── newline_adj：调整换行概率（Runner: out[END_OF_LINE] += newline_adj）
+            newline_adj = getattr(args, 'newline_adj', 0)
+            if newline_adj:
+                out[END_OF_LINE] += newline_adj
+
+            # ── AVOID_REPEAT：禁止连续重复的中文标点
+            # 对齐 Runner 的 run_rnn：if last_token in AVOID_REPEAT: out[last] = -inf
+            if len(all_tokens) > 0 and all_tokens[-1] in self._avoid_repeat_tokens:
+                last = all_tokens[-1]
+                try:
+                    out[last] = -999999999
+                except (IndexError, RuntimeError):
+                    out[last] = -65504
 
             # sampler
             token = self.sample_logits(out, temperature=args.temperature, top_p=args.top_p, top_k=args.top_k)

@@ -204,9 +204,112 @@ class RWKV_x070_Dual(nn.Module):
                 except: pass
         
         torch.cuda.empty_cache()
+        
+        # ── Pre-pack layer weights for torch.compile ──────────────────
+        # Build flat lists of per-layer parameters to avoid dict lookups
+        # during the compiled forward pass (dict access causes graph breaks).
+        self._packed = self._pack_weights(n_layer)
+        
         print(f'[Dual-GPU] Done\n')
     
     # ─── Forward ────────────────────────────────────────────────────────
+    
+    @torch.no_grad()
+    def _pack_weights(self, n_layer):
+        """Pre-pack layer weights into lists for graph-friendly access."""
+        z = self.z
+        packed = {
+            'ln1_w':   [z[f'blocks.{i}.ln1.weight']   for i in range(n_layer)],
+            'ln1_b':   [z[f'blocks.{i}.ln1.bias']     for i in range(n_layer)],
+            'ln2_w':   [z[f'blocks.{i}.ln2.weight']   for i in range(n_layer)],
+            'ln2_b':   [z[f'blocks.{i}.ln2.bias']     for i in range(n_layer)],
+            'x_r':     [z[f'blocks.{i}.att.x_r']       for i in range(n_layer)],
+            'x_w':     [z[f'blocks.{i}.att.x_w']       for i in range(n_layer)],
+            'x_k':     [z[f'blocks.{i}.att.x_k']       for i in range(n_layer)],
+            'x_v':     [z[f'blocks.{i}.att.x_v']       for i in range(n_layer)],
+            'x_a':     [z[f'blocks.{i}.att.x_a']       for i in range(n_layer)],
+            'x_g':     [z[f'blocks.{i}.att.x_g']       for i in range(n_layer)],
+            'w0':      [z[f'blocks.{i}.att.w0']        for i in range(n_layer)],
+            'w1':      [z[f'blocks.{i}.att.w1']        for i in range(n_layer)],
+            'w2':      [z[f'blocks.{i}.att.w2']        for i in range(n_layer)],
+            'a0':      [z[f'blocks.{i}.att.a0']        for i in range(n_layer)],
+            'a1':      [z[f'blocks.{i}.att.a1']        for i in range(n_layer)],
+            'a2':      [z[f'blocks.{i}.att.a2']        for i in range(n_layer)],
+            'v0':      [z[f'blocks.{i}.att.v0']        for i in range(n_layer)],
+            'v1':      [z[f'blocks.{i}.att.v1']        for i in range(n_layer)],
+            'v2':      [z[f'blocks.{i}.att.v2']        for i in range(n_layer)],
+            'g1':      [z[f'blocks.{i}.att.g1']        for i in range(n_layer)],
+            'g2':      [z[f'blocks.{i}.att.g2']        for i in range(n_layer)],
+            'k_k':     [z[f'blocks.{i}.att.k_k']       for i in range(n_layer)],
+            'k_a':     [z[f'blocks.{i}.att.k_a']       for i in range(n_layer)],
+            'r_k':     [z[f'blocks.{i}.att.r_k']       for i in range(n_layer)],
+            'R_':      [z[f'blocks.{i}.att.receptance.weight'] for i in range(n_layer)],
+            'K_':      [z[f'blocks.{i}.att.key.weight']         for i in range(n_layer)],
+            'V_':      [z[f'blocks.{i}.att.value.weight']       for i in range(n_layer)],
+            'O_':      [z[f'blocks.{i}.att.output.weight']      for i in range(n_layer)],
+            'ln_x_w':  [z[f'blocks.{i}.att.ln_x.weight']        for i in range(n_layer)],
+            'ln_x_b':  [z[f'blocks.{i}.att.ln_x.bias']          for i in range(n_layer)],
+            # FFN
+            'ffn_x_k': [z[f'blocks.{i}.ffn.x_k']       for i in range(n_layer)],
+            'ffn_K_':  [z[f'blocks.{i}.ffn.key.weight'] for i in range(n_layer)],
+            'ffn_V_':  [z[f'blocks.{i}.ffn.value.weight'] for i in range(n_layer)],
+        }
+        # head
+        packed['ln_out_w'] = z['ln_out.weight']
+        packed['ln_out_b'] = z['ln_out.bias']
+        packed['head_w']   = z['head.weight']
+        packed['emb_w']    = z['emb.weight']
+        packed['n_embd']   = self.n_embd
+        packed['n_head']   = self.n_head
+        packed['head_size'] = self.head_size
+        packed['n_layer']  = n_layer
+        return packed
+    
+    # Compile the packed version for faster per-device execution.
+    # This is a free function (no self) to maximize torch.compile effectiveness.
+    
+    @staticmethod
+    # 注意：不要开 max_autotune。实测对 mm(1x4096, 4096xN) 这类 decode 矩阵，
+    # cuBLAS 原生 0.0113ms，而 autotune 选出的 triton 方案要 0.03~0.18ms，
+    # 是负优化；且首次编译要为几十种形状各搜 2 秒，总计约 3 分钟。
+    @torch.compile(dynamic=True, options={'epilogue_fusion': True})
+    def _forward_one_compiled(x, v_first, state_flat, packed, dev_start_idx, dev_end_idx):
+
+        H = packed['n_head']
+        N = packed['head_size']
+        D = packed['n_embd']
+        HN = H * N
+
+        for i in range(dev_start_idx, dev_end_idx):
+            si = i * 3
+
+            xx = F.layer_norm(x, (D,), weight=packed['ln1_w'][i], bias=packed['ln1_b'][i])
+
+            xx, state_flat[si], state_flat[si+1], v_first = _tmix_one(
+                i, H, N, xx, state_flat[si], v_first, state_flat[si+1],
+                packed['x_r'][i], packed['x_w'][i], packed['x_k'][i],
+                packed['x_v'][i], packed['x_a'][i], packed['x_g'][i],
+                packed['w0'][i], packed['w1'][i], packed['w2'][i],
+                packed['a0'][i], packed['a1'][i], packed['a2'][i],
+                packed['v0'][i], packed['v1'][i], packed['v2'][i],
+                packed['g1'][i], packed['g2'][i],
+                packed['k_k'][i], packed['k_a'][i], packed['r_k'][i],
+                packed['R_'][i], packed['K_'][i], packed['V_'][i], packed['O_'][i],
+                packed['ln_x_w'][i], packed['ln_x_b'][i])
+            x = x + xx
+
+            xx = F.layer_norm(x, (D,), weight=packed['ln2_w'][i], bias=packed['ln2_b'][i])
+            xx, state_flat[si+2] = _cmix_one(xx, state_flat[si+2],
+                                              packed['ffn_x_k'][i], packed['ffn_K_'][i], packed['ffn_V_'][i])
+            x = x + xx
+
+        return x, v_first, state_flat
+    
+    # ─── Forward (compiled) ────────────────────────────────────────────
+    #
+    # Uses torch.compile on per-device layer groups to fuse the per-layer
+    # compute graph and eliminate kernel launch overhead.
+    # Device crossing still happens via the uncompiled outer loop.
     
     def forward(self, idx, state=None, full_output=False):
         if state is None:
@@ -222,8 +325,6 @@ class RWKV_x070_Dual(nn.Module):
         
         if isinstance(idx, list):
             if len(idx) > 1:
-                # Sequential mode: fall back to one-by-one
-                # (avoids RWKV7 CUDA op that's hardcoded to single device)
                 if not full_output:
                     for token in idx:
                         out, state = self._forward_one(token, state)
@@ -239,42 +340,47 @@ class RWKV_x070_Dual(nn.Module):
         else:
             return self._forward_one(idx, state)
     
+    @torch.no_grad()
     def _forward_one(self, idx: int, state):
-        with torch.no_grad():
-            z = self.z
-            x = z['emb.weight'][idx]
-            v_first = torch.empty_like(x)
-            cur_dev = str(x.device)
+        """Compiled dual-GPU forward for a single token."""
+        z = self.z
+        x = z['emb.weight'][idx]
+        v_first = torch.empty_like(x)
+        cur_dev = str(x.device)
+
+        # Determine device-group boundaries
+        # For dual-GPU, we split layers into contiguous groups per device
+        device_boundaries = {}
+        for i in range(self.n_layer):
+            dev = self.dev_map.get(i, cur_dev) if self.is_multi else cur_dev
+            device_boundaries.setdefault(dev, []).append(i)
+        
+        # For each device, run all its layers through the compiled kernel
+        for dev, layer_ids in sorted(device_boundaries.items()):
+            if dev != cur_dev:
+                x = x.to(device=dev)
+                v_first = v_first.to(device=dev)
+                # Move state tensors for these layers to target device
+                for i in layer_ids:
+                    state[i*3+0] = state[i*3+0].to(device=dev)
+                    state[i*3+1] = state[i*3+1].to(device=dev)
+                    state[i*3+2] = state[i*3+2].to(device=dev)
+                cur_dev = dev
             
-            for i in range(self.n_layer):
-                tgt = self.dev_map.get(i, cur_dev) if self.is_multi else cur_dev
-                if tgt != cur_dev:
-                    x = x.to(device=tgt)
-                    v_first = v_first.to(device=tgt)
-                    cur_dev = tgt
-                
-                b = f'blocks.{i}.'
-                a = f'blocks.{i}.att.'
-                f = f'blocks.{i}.ffn.'
-                
-                xx = F.layer_norm(x, (self.n_embd,), weight=z[b+'ln1.weight'], bias=z[b+'ln1.bias'])
-                xx, state[i*3+0], state[i*3+1], v_first = _tmix_one(
-                    i, self.n_head, self.head_size, xx, state[i*3+0], v_first, state[i*3+1],
-                    z[a+'x_r'],z[a+'x_w'],z[a+'x_k'],z[a+'x_v'],z[a+'x_a'],z[a+'x_g'],
-                    z[a+'w0'],z[a+'w1'],z[a+'w2'],z[a+'a0'],z[a+'a1'],z[a+'a2'],
-                    z[a+'v0'],z[a+'v1'],z[a+'v2'],z[a+'g1'],z[a+'g2'],z[a+'k_k'],z[a+'k_a'],z[a+'r_k'],
-                    z[a+'receptance.weight'],z[a+'key.weight'],z[a+'value.weight'],z[a+'output.weight'],
-                    z[a+'ln_x.weight'],z[a+'ln_x.bias'])
-                x = x + xx
-                
-                xx = F.layer_norm(x, (self.n_embd,), weight=z[b+'ln2.weight'], bias=z[b+'ln2.bias'])
-                xx, state[i*3+2] = _cmix_one(xx, state[i*3+2], z[f+'x_k'], z[f+'key.weight'], z[f+'value.weight'])
-                x = x + xx
+            start_idx = layer_ids[0]
+            end_idx = layer_ids[-1] + 1
             
-            # Head
-            hd = self.dev_map.get(self.n_layer, cur_dev) if self.is_multi else cur_dev
-            if str(x.device) != hd:
-                x = x.to(device=hd)
-            x = F.layer_norm(x, (self.n_embd,), weight=z['ln_out.weight'], bias=z['ln_out.bias'])
-            x = x @ z['head.weight']
-            return x, state
+            x, v_first, state = self._forward_one_compiled(
+                x, v_first, state,
+                self._packed, start_idx, end_idx)
+        
+        # Head
+        hd = self.dev_map.get(self.n_layer, cur_dev) if self.is_multi else cur_dev
+        hd = str(self.z['ln_out.weight'].device) if self.is_multi and self.n_layer not in self.dev_map else hd
+        if cur_dev != hd:
+            x = x.to(device=hd)
+        x = F.layer_norm(x, (self.n_embd,), weight=z['ln_out.weight'], bias=z['ln_out.bias'])
+        x = x @ z['head.weight']
+        return x, state
+    
+    # ─── Compiled kernel ──────────────────────────────────────────────
