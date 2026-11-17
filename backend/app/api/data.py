@@ -101,21 +101,6 @@ async def delete_chat_data(folder: str = Query(...), model: str = Query(...)) ->
         raise HTTPException(status_code=500, detail=str(e))
  
 
-@router.get("/temp-txt")
-async def get_temp_txt(folder: str = Query(...)) -> Dict:
-    try:
-        if folder == "base_models":
-            temp_file_path = BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt"
-        else:
-            temp_file_path = CHECKPOINT_DIR / folder / "chat-data" / "temp.txt"
-        if temp_file_path.exists():
-            with open(temp_file_path, 'r', encoding='utf-8') as f:
-                return {"content": f.read()}
-        return {"content": ""}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/chat-models")
 async def get_chat_model_list() -> List[Dict[str, Any]]:
     try:

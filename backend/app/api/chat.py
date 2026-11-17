@@ -76,24 +76,12 @@ async def _chat_stream(request: ChatRequest):
         print(f"===============================================================")
         queue = asyncio.Queue()
         stop_event = asyncio.Event()
-        token_buf: list = []
-        temp_file_path = (
-            str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
-            if folder == "base_models"
-            else str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
-        )
-
         def sync_callback(token: str, perplexity: float = None):
-            # 原实现：每个 token 都 open/append/close 一次，生成 200 token 就是
-            # 200 次磁盘 I/O，会明显拖慢流式输出节奏。改为内存累积，结束时一次落盘。
-            token_buf.append(token)
+            # 直接推入队列，由 SSE 推给前端。全程不落盘（对齐 RWKV-Runner）
             queue.put_nowait((token, perplexity))
 
         def run_generation():
             try:
-                with open(temp_file_path, 'w', encoding='utf-8') as f:
-                    pass
-
                 # print(f"[CHAT API] Starting generation, prompt: {prompt[:100]}...")
                 manager.generate(
                     prompt=prompt,
@@ -108,13 +96,6 @@ async def _chat_stream(request: ChatRequest):
                 print(f"[CHAT API] Generation error: {e}")
                 queue.put_nowait(("__error__", str(e)))
             finally:
-                # 一次性把累积的 token 写入 temp.txt
-                try:
-                    if token_buf:
-                        with open(temp_file_path, 'w', encoding='utf-8') as f:
-                            f.write("".join(token_buf))
-                except Exception as e:
-                    print(f"[CHAT API] Failed to flush temp.txt: {e}")
                 print("[CHAT API] Setting stop event")
                 stop_event.set()
 
@@ -303,23 +284,12 @@ async def regenerate(request: ChatRequest):
 
         queue = asyncio.Queue()
         stop_event = asyncio.Event()
-        token_buf: list = []
-        temp_file_path = (
-            str(BASE_DIR / "workspace" / "base_models" / "chat-data" / "temp.txt")
-            if folder == "base_models"
-            else str(CHECKPOINT_DIR / folder / "chat-data" / "temp.txt")
-        )
-
         def sync_callback(token: str, perplexity: float = None):
-            # 同上：内存累积，避免每 token 一次磁盘 I/O
-            token_buf.append(token)
+            # 直接推入队列，由 SSE 推给前端。全程不落盘（对齐 RWKV-Runner）
             queue.put_nowait((token, perplexity))
 
         def run_generation():
             try:
-                with open(temp_file_path, 'w', encoding='utf-8') as f:
-                    pass
-
                 manager.generate(
                     prompt=prompt,
                     callback=sync_callback,
@@ -333,13 +303,6 @@ async def regenerate(request: ChatRequest):
                 print(f"[CHAT API] Regeneration error: {e}")
                 queue.put_nowait(("__error__", str(e)))
             finally:
-                # 一次性把累积的 token 写入 temp.txt
-                try:
-                    if token_buf:
-                        with open(temp_file_path, 'w', encoding='utf-8') as f:
-                            f.write("".join(token_buf))
-                except Exception as e:
-                    print(f"[CHAT API] Failed to flush temp.txt: {e}")
                 stop_event.set()
 
         import threading
