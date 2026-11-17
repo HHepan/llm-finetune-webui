@@ -457,7 +457,6 @@ const messagesRef = ref(null)
 const isModelLoading = ref(false)
 const isModelLoaded = ref(false)
 const modelLoadError = ref('')
-let displayInterval = null
 let isThinking = ref(false)
 
 const showRightPanel = ref(true)
@@ -470,46 +469,7 @@ const scrollToBottom = () => {
   })
 }
 
-const displayCharByChar = (fullContent) => {
-  if (displayInterval) {
-    clearInterval(displayInterval)
-  }
-  isThinking.value = false
-
-  // 以"</think>"为关键字分割：思考内容放入可折叠区域，只逐字展示回答部分
-  let thinkingContent = ''
-  let contentToShow = fullContent
-  const thinkKeyword = '</think>'
-  const thinkIdx = fullContent.indexOf(thinkKeyword)
-  if (thinkIdx !== -1) {
-    thinkingContent = fullContent.substring(0, thinkIdx).trim()
-    contentToShow = fullContent.substring(thinkIdx + thinkKeyword.length)
-  }
-
-  const content = contentToShow.replace(/^\n+/, '').replace(/\n+$/, '')
-  const lastMsg = messages.value[messages.value.length - 1]
-  if (lastMsg.role !== 'assistant') return
-
-  // 保存思考内容和折叠状态
-  lastMsg.thinkingContent = thinkingContent || ''
-  lastMsg.thinking = thinkingContent || ''
-  lastMsg.showThinking = false
-
-  lastMsg.content = ''
-
-  let index = 0
-  displayInterval = setInterval(() => {
-    if (index < content.length) {
-      lastMsg.content += content[index]
-      index++
-      scrollToBottom()
-    } else {
-      clearInterval(displayInterval)
-      displayInterval = null
-      lastMsg.isStreaming = false
-    }
-  }, 30)
-}
+// displayCharByChar 已移除：改为真流式渲染（见 generateResponse）
 
 const showPerplexity = ref(true)
 const perplexityChartRef = ref(null)
@@ -1040,28 +1000,75 @@ const generateResponse = async (userMessageContent, isNewMessage = true, isRegen
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
 
+    // ★ 真流式：逐条 SSE 增量渲染，全程不读文件（对齐 RWKV-Runner）
+    const lastMsg = messages.value[messages.value.length - 1]
+    let buffer = ''        // SSE 原始行缓冲（处理跨 chunk 的半行）
+    let rawText = ''       // 累积的完整原文（含 <think> 标签）
+    let fired = false
+
+    // 从累积原文中解析 thinking / answer，实时写入消息对象
+    const applyDelta = (delta) => {
+      rawText += delta
+
+      const END = '<' + '/think' + '>'
+      const START = '<' + 'think' + '>'
+      let thinking = ''
+      let answer = rawText
+      let thinkingEnded = false
+
+      const idx = rawText.indexOf(END)
+      if (idx !== -1) {
+        thinkingEnded = true
+        thinking = rawText.substring(0, idx)
+        answer = rawText.substring(idx + END.length)
+      } else if (rawText.includes(START)) {
+        thinking = rawText.substring(rawText.indexOf(START) + START.length)
+        answer = ''
+      }
+
+      // 清洗首尾换行
+      thinking = thinking.replace(/^\n+/, '').replace(/\n+$/, '')
+      answer = answer.replace(/^\n+/, '')
+        .replace(/\n+$/, '')
+
+      if (thinking !== '') {
+        lastMsg.thinkingContent = thinking
+        if (!lastMsg.showThinking) lastMsg.showThinking = true
+      }
+      lastMsg.content = answer
+      lastMsg.isStreaming = !thinkingEnded
+      if (thinkingEnded) isThinking.value = false
+      scrollToBottom()
+    }
+
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
 
-      const chunk = decoder.decode(value, { stream: true })
-      const lines = chunk.split('\n')
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''   // 最后一段可能是半行，留到下次
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim()
-          if (data === '[FINAL]') {
-            reader.cancel()
-            const res = await axios.get('/api/data/temp-txt', { params: { folder } })
-            displayCharByChar(res.data.content)
-            return
-          }
+        const t = line.trim()
+        if (!t.startsWith('data:')) continue
+        const data = t.slice(5).trim()
+        if (data === '' ) continue
+        if (data === '[FINAL]' || data === '[DONE]') { fired = true; continue }
+        try {
+          const obj = JSON.parse(data)
+          if (obj.error) throw new Error(obj.error)
+          if (obj.content) applyDelta(obj.content)
+        } catch (e) {
+          // 非 JSON 或解析失败，忽略
         }
       }
     }
 
-    const res = await axios.get('/api/data/temp-txt', { params: { folder } })
-    displayCharByChar(res.data.content)
+    // 收尾
+    lastMsg.isStreaming = false
+    isThinking.value = false
+    scrollToBottom()
   } catch (error) {
     isThinking.value = false
     console.error('发送消息失败', error)
